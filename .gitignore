@@ -1,0 +1,30 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# Editor/import caches and logs
+*.tmp
+*.log
+.import/
+
+# Build / export output (exports are produced from the source, not committed)
+/build/
+/builds/
+/export/
+/exports/
+*.exe
+*.pck
+*.apk
+*.aab
+*.zip
+
+# Mono / C# (not used yet, kept for safety)
+.mono/
+data_*/
+mono_crash.*.json
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+*~

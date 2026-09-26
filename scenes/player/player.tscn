@@ -1,0 +1,68 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/player/player_controller.gd" id="1_ctrl"]
+[ext_resource type="Script" path="res://scripts/movement/movement_settings.gd" id="2_settings"]
+[ext_resource type="Script" path="res://scripts/player/player_visual.gd" id="3_visual"]
+[ext_resource type="Script" path="res://scripts/parkour/parkour_sensor.gd" id="4_sensor"]
+[ext_resource type="Script" path="res://scripts/player/player_camera.gd" id="5_camera"]
+[ext_resource type="Script" path="res://scripts/player/interaction_prompt.gd" id="7_prompt"]
+[ext_resource type="Script" path="res://scripts/player/bullet_time.gd" id="8_bullet"]
+[ext_resource type="PackedScene" path="res://assets/characters/vigilante/vigilante_player.glb" id="9_model"]
+
+[sub_resource type="Resource" id="Resource_settings"]
+script = ExtResource("2_settings")
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
+resource_local_to_scene = true
+radius = 0.35
+height = 1.8
+
+[node name="Player" type="CharacterBody3D" groups=["player"]]
+collision_layer = 2
+floor_snap_length = 0.3
+script = ExtResource("1_ctrl")
+settings = SubResource("Resource_settings")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("CapsuleShape3D_body")
+
+[node name="Visual" type="Node3D" parent="."]
+script = ExtResource("3_visual")
+
+[node name="Pivot" type="Node3D" parent="Visual"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+
+[node name="VigilanteModel" parent="Visual/Pivot" instance=ExtResource("9_model")]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, -0.9, 0)
+
+[node name="ParkourSensor" type="Node3D" parent="."]
+script = ExtResource("4_sensor")
+
+[node name="CameraRig" type="Node3D" parent="." node_paths=PackedStringArray("target")]
+top_level = true
+physics_interpolation_mode = 2
+script = ExtResource("5_camera")
+target = NodePath("..")
+
+[node name="Pitch" type="Node3D" parent="CameraRig"]
+
+[node name="Camera3D" type="Camera3D" parent="CameraRig/Pitch"]
+current = true
+fov = 70.0
+near = 0.08
+
+[node name="BulletTime" type="Node" parent="."]
+script = ExtResource("8_bullet")
+
+[node name="PromptLayer" type="CanvasLayer" parent="."]
+
+[node name="InteractionPrompt" type="Control" parent="PromptLayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("7_prompt")

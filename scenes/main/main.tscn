@@ -1,0 +1,25 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/test/movement_test_level.tscn" id="1_level"]
+[ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="2_player"]
+[ext_resource type="Script" path="res://scripts/debug/debug_hud.gd" id="3_hud"]
+
+[node name="Main" type="Node3D"]
+
+[node name="MovementTestLevel" parent="." instance=ExtResource("1_level")]
+
+[node name="Player" parent="." instance=ExtResource("2_player")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.05, 10)
+
+[node name="DebugHUD" type="CanvasLayer" parent="." node_paths=PackedStringArray("player")]
+script = ExtResource("3_hud")
+player = NodePath("../Player")
+
+[node name="Label" type="Label" parent="DebugHUD"]
+offset_left = 24.0
+offset_top = 16.0
+offset_right = 1400.0
+offset_bottom = 320.0
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 7
+theme_override_font_sizes/font_size = 24
