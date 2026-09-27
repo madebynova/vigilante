@@ -18,7 +18,7 @@ The project is at an early stage. The current build is a **movement foundation**
 - Third-person orbit camera with collision avoidance
 - Parkour: vaults, mantles, ledge grab / hang / shimmy / climb-up
 - Window traversal (a deliberate dive through an opening, in either direction, on foot or mid-jump)
-- Grapple foundation: aim at an anchor point and get pulled to it, on foot or in the air
+- Grapple arrow: fire an arrow at an anchor point, then get pulled along its cable, on foot or in the air
 - Timed bullet-time ability
 - The Vigilante character model in the player scene (static for now)
 - Greybox movement test level
@@ -27,7 +27,8 @@ The project is at an early stage. The current build is a **movement foundation**
 **Not implemented yet**
 
 - Combat, weapons and enemies
-- Grapple swinging, rope physics and grapple combat (the grapple is a straight pull to anchor points only)
+- Grapple swinging, rope physics and grapple combat (the grapple arrow is a straight pull to anchor points only)
+- Other arrow types and the arrow selection menu (the grapple arrow is the only arrow so far)
 - Character rigging and animations (the model is currently a static, unrigged mesh)
 - Story, missions, progression, audio
 
@@ -64,14 +65,17 @@ A timed slow-motion ability.
 - Running or jumping into a dive window does nothing on its own; it is always a deliberate button press.
 - **Plain windows** behave like regular obstacles: sprinting into one vaults through it, and E / Jump climbs through.
 
-## Grapple
+## Grapple Arrow
 
-A minimal grapple foundation for building-to-building traversal.
+The Vigilante's grapple is a fired arrow, used for building-to-building traversal.
 
 - **Anchor points** are placed in the level as small glowing markers. The one you are aiming at (camera centre, within 35 m, with line of sight) brightens.
-- Press **Right mouse / F** to fire: the player is pulled straight to the anchor and hops onto the ledge it sits on. Works on foot or in the air, including straight out of a window dive. Press again to let go.
+- Press **Right mouse / F** to fire a **grapple arrow** at it. The arrow flies to the anchor (80 m/s, slowed by bullet time like everything else) trailing its cable, and sticks in it. While it flies the player keeps their momentum; only once it has attached is the player pulled along the cable, hopping onto the ledge the anchor sits on. Works on foot or in the air, including straight out of a window dive.
+- Press again to let go, either while the arrow is still flying or during the pull.
+- If the arrow can't hold (something blocks its path, its anchor goes away, or it flies too long) the grapple ends without a pull.
 - It never fires on its own. With no valid target, the press does nothing.
-- The core loop it proves: **jump → E window dive → bullet time → grapple → next building**, repeatable in the grapple test area (walk up the ramp beside the first tower; the second tower has an anchor back).
+- The arrow is a placeholder model (claw head, shaft, fletching) built in code until a real arrow asset exists.
+- The core loop it proves: **jump → E window dive → bullet time → fire grapple arrow → it attaches → pulled → next building**, repeatable in the grapple test area (walk up the ramp beside the first tower; the second tower has an anchor back).
 
 ## Controls
 
@@ -82,7 +86,7 @@ A minimal grapple foundation for building-to-building traversal.
 | Space | Jump · bullet time when airborne over a drop |
 | C / Ctrl | Crouch (hold) |
 | E | Dive through a window · vault / climb elsewhere |
-| Right mouse / F | Grapple to the anchor you are aiming at (press again to let go) |
+| Right mouse / F | Fire a grapple arrow at the anchor you are aiming at (press again to let go) |
 | While hanging | Space / E climb up · A / D shimmy · C drop |
 | Mouse | Orbit camera |
 | Esc / left click | Release / recapture mouse |
@@ -108,6 +112,7 @@ scenes/
   test/                   Greybox movement test level
 scripts/
   player/                 Controller, camera, visuals, bullet time, grapple, prompt
+  arrows/                 Arrow projectiles (grapple arrow)
   movement/               Locomotion math, tuning settings, scripted motions
   parkour/                Parkour sensor, parkour moves, traversal windows, grapple anchors
   level/                  Greybox block and grid shader
@@ -135,6 +140,7 @@ Add `-- --shots=<folder>` (without `--headless`) to also save screenshots.
 Planned, not yet implemented:
 
 - Rigging and animating the Vigilante character (idle, walk, sprint, jump, fall, land, crouch)
+- An arrow selection menu and more arrow types alongside the grapple arrow
 - Building on the grapple: swinging, grapple combat and a real city to traverse
 - Combat
 - A playable environment beyond the movement test level

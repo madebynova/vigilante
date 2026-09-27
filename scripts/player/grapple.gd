@@ -1,11 +1,17 @@
 class_name Grapple
 extends Node3D
-## Grapple targeting and rope.
+## The grapple arrow: targeting, firing and the cable.
 ##
 ## Finds the best GrappleAnchor along the camera's aim (within range, inside
-## the aim cone, with line of sight) and draws a straight rope while the
-## player is being pulled. The pull itself is a player state (see Player);
-## this node only answers "what would I grapple to?" and shows the rope.
+## the aim cone, with line of sight), fires a GrappleArrow at it and draws the
+## cable from the player's hand to the arrow: paying out while it flies, taut
+## once it has stuck. The pull itself is a player state (see Player); this
+## node answers "what would I grapple to?", owns the arrow in play and shows
+## the cable. Everything the grapple arrow needs lives here and in
+## GrappleArrow, so a future arrow selection only decides when fire() is used.
+
+## The arrow's nock starts this far in front of the hand, clear of the body.
+const NOCK_CLEARANCE := 0.4
 
 @export_flags_3d_physics var collision_mask := 1
 @export var max_range := 35.0
@@ -16,6 +22,12 @@ extends Node3D
 ## A line-of-sight hit this close to the anchor still counts as a clear line
 ## (the anchor sits on the ledge it belongs to).
 @export var line_of_sight_tolerance := 1.0
+
+@export_group("Arrow")
+## Grapple arrow flight speed in m/s (game time, so it slows with bullet time).
+@export var arrow_speed := 80.0
+## Height above the feet of the hand that shoots and holds the cable.
+@export var hand_height := 1.3
 
 @export_group("Pull")
 @export var pull_speed := 22.0
@@ -29,10 +41,12 @@ extends Node3D
 
 ## Anchor the player would grapple to right now (highlighted), or null.
 var target: GrappleAnchor
-## Anchor the player is being pulled toward, or null.
-var attached: GrappleAnchor
+## Anchor the arrow in play was fired at, or null.
+var anchor: GrappleAnchor
+## The arrow in play (flying or stuck), or null.
+var arrow: GrappleArrow
 
-var _rope: MeshInstance3D
+var _cable: MeshInstance3D
 
 
 func _ready() -> void:
@@ -44,13 +58,13 @@ func _ready() -> void:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = Color(0.12, 0.12, 0.14)
 	material.roughness = 0.6
-	_rope = MeshInstance3D.new()
-	_rope.mesh = mesh
-	_rope.material_override = material
-	_rope.top_level = true
-	_rope.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
-	_rope.visible = false
-	add_child(_rope)
+	_cable = MeshInstance3D.new()
+	_cable.mesh = mesh
+	_cable.material_override = material
+	_cable.top_level = true
+	_cable.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	_cable.visible = false
+	add_child(_cable)
 
 
 ## Picks the best anchor for a player whose chest is at `from`, aiming with
@@ -61,16 +75,16 @@ func update_target(from: Vector3, camera: Camera3D) -> GrappleAnchor:
 	var aim_from := camera.global_position
 	var forward := -camera.global_basis.z.normalized()
 	for node in get_tree().get_nodes_in_group(GrappleAnchor.GROUP):
-		var anchor := node as GrappleAnchor
-		if anchor == null or not anchor.enabled:
+		var candidate := node as GrappleAnchor
+		if candidate == null or not candidate.enabled:
 			continue
-		var distance := from.distance_to(anchor.global_position)
+		var distance := from.distance_to(candidate.global_position)
 		if distance > max_range or distance < min_range:
 			continue
-		var angle := rad_to_deg(forward.angle_to(anchor.global_position - aim_from))
-		if angle > best_angle or not has_line_of_sight(from, anchor.global_position):
+		var angle := rad_to_deg(forward.angle_to(candidate.global_position - aim_from))
+		if angle > best_angle or not has_line_of_sight(from, candidate.global_position):
 			continue
-		best = anchor
+		best = candidate
 		best_angle = angle
 	_set_target(best)
 	return best
@@ -86,49 +100,78 @@ func clear_target() -> void:
 	_set_target(null)
 
 
-func attach(anchor: GrappleAnchor) -> void:
-	attached = anchor
-	_set_target(anchor)
-	_rope.visible = true
-	_update_rope()
+## Fires a grapple arrow from the player's hand at `at`. The cable pays out
+## behind it; is_attached() turns true once it has stuck.
+func fire(at: GrappleAnchor) -> void:
+	detach()
+	anchor = at
+	_set_target(at)
+	var hand := hand_position()
+	var dir := (at.global_position - hand).normalized()
+	arrow = GrappleArrow.new()
+	arrow.speed = arrow_speed
+	arrow.collision_mask = collision_mask
+	arrow.anchor_tolerance = line_of_sight_tolerance
+	add_child(arrow)
+	arrow.launch(hand + dir * (GrappleArrow.LENGTH + NOCK_CLEARANCE), at)
+	_update_cable()
 
 
+## The arrow is stuck in its anchor and the cable is connected.
+func is_attached() -> bool:
+	return arrow != null and arrow.is_attached()
+
+
+func is_arrow_flying() -> bool:
+	return arrow != null and arrow.phase == GrappleArrow.Phase.FLYING
+
+
+## Lets go: removes the arrow and cable and clears the highlight.
 func detach() -> void:
-	attached = null
-	_rope.visible = false
+	if arrow != null:
+		arrow.set_physics_process(false)
+		arrow.queue_free()
+		arrow = null
+	anchor = null
+	_cable.visible = false
 	_set_target(null)
 
 
+func hand_position() -> Vector3:
+	return (get_parent() as Node3D).global_position + Vector3.UP * hand_height
+
+
 func _process(_delta: float) -> void:
-	if attached != null:
-		_update_rope()
+	if arrow != null:
+		_update_cable()
 
 
-## Straight rope from the player's hand height to the anchor, drawn from the
-## player's interpolated position so it stays glued to the body.
-func _update_rope() -> void:
-	if attached == null or not is_instance_valid(attached):
+## Straight cable from the player's hand to the arrow's nock, drawn from
+## interpolated positions so it stays glued to both.
+func _update_cable() -> void:
+	if arrow == null:
+		_cable.visible = false
 		return
 	var body := get_parent() as Node3D
-	var from := body.get_global_transform_interpolated().origin + Vector3.UP * 1.3
-	var to := attached.global_position
+	var from := body.get_global_transform_interpolated().origin + Vector3.UP * hand_height
+	var to := arrow.nock_position()
 	var along := to - from
 	var length := along.length()
 	if length < 0.01:
-		_rope.visible = false
+		_cable.visible = false
 		return
 	var y := along / length
 	var x := y.cross(Vector3.UP if absf(y.dot(Vector3.UP)) < 0.95 else Vector3.RIGHT).normalized()
 	var z := x.cross(y).normalized()
-	_rope.global_transform = Transform3D(Basis(x, y * length, z), from + along * 0.5)
-	_rope.visible = true
+	_cable.global_transform = Transform3D(Basis(x, y * length, z), from + along * 0.5)
+	_cable.visible = true
 
 
-func _set_target(anchor: GrappleAnchor) -> void:
-	if anchor == target:
+func _set_target(value: GrappleAnchor) -> void:
+	if value == target:
 		return
 	if target != null and is_instance_valid(target):
 		target.set_targeted(false)
-	target = anchor
+	target = value
 	if target != null:
 		target.set_targeted(true)

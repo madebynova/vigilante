@@ -10,11 +10,13 @@ extends CharacterBody3D
 ##   TraversalWindow   - window openings and their motions
 ##   InteractionPrompt - on-screen contextual prompt ("[E] DIVE THROUGH")
 ##   BulletTime        - timed slow-time ability (Space)
-##   Grapple           - grapple targeting (camera aim) and rope
+##   Grapple           - grapple arrow: targeting (camera aim), firing, cable
 ##   PlayerCamera      - orbit camera and mouse capture
 ##   PlayerVisual      - character model + light procedural motion
 
-enum State { MOVE, TRAVERSAL, LEDGE_HANG, WINDOW_APPROACH, GRAPPLE }
+## GRAPPLE_FIRE: the grapple arrow is in flight. GRAPPLE: it has stuck and the
+## player is being pulled along the cable.
+enum State { MOVE, TRAVERSAL, LEDGE_HANG, WINDOW_APPROACH, GRAPPLE_FIRE, GRAPPLE }
 
 ## How long a grapple press is remembered (game seconds), so pressing a hair
 ## before the grapple becomes possible (e.g. mid-dive) still counts.
@@ -24,7 +26,11 @@ signal state_changed(new_state: State)
 signal traversal_started(id: StringName)
 signal traversal_finished(id: StringName)
 signal landed(impact_speed: float)
+## A grapple arrow has been fired at `anchor`.
+signal grapple_fired(anchor: GrappleAnchor)
+## The grapple arrow has stuck in `anchor`: the pull begins.
 signal grapple_started(anchor: GrappleAnchor)
+## The grapple is over: arrived, let go, or the arrow missed.
 signal grapple_finished(arrived: bool)
 
 @export var settings: MovementSettings
@@ -121,6 +127,8 @@ func _physics_process(delta: float) -> void:
 			_process_hang(delta)
 		State.WINDOW_APPROACH:
 			_process_window_approach(delta)
+		State.GRAPPLE_FIRE:
+			_process_grapple_fire(delta)
 		State.GRAPPLE:
 			_process_grapple(delta)
 	_jump_buffer = maxf(_jump_buffer - delta, 0.0)
@@ -397,7 +405,7 @@ func _process_traversal(delta: float) -> void:
 			and _clear_of_dive_window():
 		var anchor := grapple.target
 		_end_motion(false)
-		_start_grapple(anchor)
+		_fire_grapple(anchor)
 		return
 	if motion.is_finished():
 		_end_motion(true)
@@ -559,41 +567,85 @@ func _update_grapple_target() -> void:
 	match state:
 		State.MOVE, State.TRAVERSAL:
 			grapple.update_target(global_position + Vector3.UP * 1.2, camera.camera)
-		State.GRAPPLE:
-			pass # keep the attached anchor highlighted
+		State.GRAPPLE_FIRE, State.GRAPPLE:
+			pass # keep the arrow's anchor highlighted
 		_:
 			grapple.clear_target()
 
 
-## Grapple press with a valid target: start the pull (on the ground or in the air).
+## Grapple press with a valid target: fire the grapple arrow (on the ground or
+## in the air).
 func _try_grapple() -> bool:
 	if _grapple_buffer <= 0.0 or grapple.target == null:
 		return false
-	_start_grapple(grapple.target)
+	_fire_grapple(grapple.target)
 	return true
 
 
-func _start_grapple(anchor: GrappleAnchor) -> void:
+## Fires the grapple arrow at `anchor`. The pull starts once it has stuck
+## (see _process_grapple_fire).
+func _fire_grapple(anchor: GrappleAnchor) -> void:
 	_grapple_buffer = 0.0
 	if is_crouching:
 		_try_stand()
-	grapple.attach(anchor)
+	current_ledge = null
+	grapple.fire(anchor)
+	last_action = &"grapple_fire"
+	_set_state(State.GRAPPLE_FIRE)
+	grapple_fired.emit(anchor)
+
+
+## Grapple arrow in flight: the player carries their momentum (braking on the
+## ground, falling in the air) and turns toward the shot. Once the arrow
+## sticks the pull starts; if it misses (blocked, timed out, anchor gone) or
+## grapple is pressed again, the grapple ends without a pull.
+func _process_grapple_fire(delta: float) -> void:
+	if _grapple_buffer > 0.0:
+		_grapple_buffer = 0.0 # this press lets go; don't re-grapple with it
+		_end_grapple(false)
+		return
+	if grapple.is_attached():
+		_start_pull()
+		_process_grapple(delta)
+		return
+	if not grapple.is_arrow_flying():
+		_end_grapple(false, &"grapple_miss")
+		return
+	var on_floor := is_on_floor()
+	var hvel: Vector3
+	if on_floor:
+		hvel = Locomotion.ground(velocity, Vector3.ZERO, 0.0, settings, delta)
+	else:
+		hvel = Locomotion.air(velocity, Vector3.ZERO, 0.0, settings, delta)
+		velocity.y = Locomotion.apply_gravity(velocity.y, false, settings, delta)
+	velocity.x = hvel.x
+	velocity.z = hvel.z
+	var to_anchor := grapple.anchor.global_position - global_position
+	var flat := Vector3(to_anchor.x, 0.0, to_anchor.z)
+	if flat.length() > 0.3:
+		_face(flat, 14.0, delta)
+	move_and_slide()
+
+
+## The arrow has stuck and the cable is connected: start pulling toward it.
+func _start_pull() -> void:
+	var anchor := grapple.anchor
 	_grapple_time = 0.0
 	_grapple_best = global_position.distance_to(anchor.global_position)
 	_grapple_stall = 0.0
-	current_ledge = null
 	last_action = &"grapple"
 	_set_state(State.GRAPPLE)
 	grapple_started.emit(anchor)
 
 
-## Pulled straight toward the anchor. Ends on arrival, when blocked, on timeout,
-## if the anchor goes away, or when grapple is pressed again (let go).
+## Pulled straight toward the stuck arrow's anchor. Ends on arrival, when
+## blocked, on timeout, if the anchor goes away, or when grapple is pressed
+## again (let go).
 func _process_grapple(delta: float) -> void:
-	var anchor := grapple.attached
-	if anchor == null or not is_instance_valid(anchor) or not anchor.enabled:
-		_end_grapple(false)
+	if not grapple.is_attached():
+		_end_grapple(false) # the anchor went away (disabled or removed)
 		return
+	var anchor := grapple.anchor
 	if _grapple_buffer > 0.0:
 		_grapple_buffer = 0.0 # this press lets go; don't re-grapple with it
 		_end_grapple(false)
@@ -621,7 +673,9 @@ func _process_grapple(delta: float) -> void:
 		_end_grapple(false) # blocked by geometry or taking too long
 
 
-func _end_grapple(arrived: bool) -> void:
+## Ends the grapple (arrow in flight or pull) and removes the arrow and cable.
+## `action` is the debug readout for an ending without arrival.
+func _end_grapple(arrived: bool, action := &"grapple_release") -> void:
 	var pull := velocity
 	grapple.detach()
 	if arrived:
@@ -632,9 +686,10 @@ func _end_grapple(arrived: bool) -> void:
 		velocity = flat.normalized() * grapple.hop_forward_speed + Vector3.UP * grapple.hop_up_speed
 		last_action = &"grapple_arrive"
 	else:
-		last_action = &"grapple_release"
+		last_action = action
 	_coyote = 0.0
-	_was_on_floor = false
+	# Letting go of a shot fired on the ground is not a landing.
+	_was_on_floor = is_on_floor() and not arrived
 	_ledge_cooldown = maxf(_ledge_cooldown, 0.25)
 	_set_state(State.MOVE)
 	grapple_finished.emit(arrived)

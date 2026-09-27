@@ -48,6 +48,7 @@ func _run() -> void:
 	await test_slow_time()
 	await test_windows()
 	await test_window_grapple_loop()
+	await test_grapple_arrow()
 	await test_character()
 	await test_idle_animation()
 	await test_neutral_stance()
@@ -730,7 +731,8 @@ func test_window_grapple_loop() -> void:
 	_check("sprint-jump into the tower window without E: no traversal", ids.is_empty() and player.global_position.z > win.global_position.z,
 			"%s at %s" % [ids, player.global_position])
 
-	# THE SEQUENCE: sprint -> jump -> E in the air -> dive out -> bullet time -> aim -> grapple -> Tower B.
+	# THE SEQUENCE: sprint -> jump -> E in the air -> dive out -> bullet time -> aim -> fire the
+	# grapple arrow -> it attaches -> cable connects -> pulled -> Tower B.
 	var r := await _tower_dive(anchor_b, true)
 	_check("prompt shows [E] DIVE THROUGH mid-jump", r.prompt_in_air == "E DIVE THROUGH", "'%s'" % r.prompt_in_air)
 	_check("E in the air dives through the window", r.dove, str(r.ids))
@@ -738,12 +740,21 @@ func test_window_grapple_loop() -> void:
 	_check("bullet time lasts ~0.4 s and ends by itself", absf(r.bt_length - 0.4) < 0.06, "%.3f s" % r.bt_length)
 	_check("dive carries the player out of the window, airborne", r.out_airborne, "clear of the frame at %s" % r.clear_pos)
 	_check("anchor on Tower B targeted and highlighted", r.target_seen)
-	_check("grapple fires while airborne (straight out of the dive)", r.grappled and r.grapple_airborne and r.cut_dive_short,
-			"grappled=%s airborne=%s cut_short=%s" % [r.grappled, r.grapple_airborne, r.cut_dive_short])
+	_check("grapple arrow fires while airborne (straight out of the dive)", r.fired and r.fired_airborne and r.cut_dive_short,
+			"fired=%s airborne=%s cut_short=%s" % [r.fired, r.fired_airborne, r.cut_dive_short])
+	_check("arrow flies to Tower B's anchor (closing in every frame)", r.arrow_frames >= 2 and r.arrow_closing,
+			"%d frames in flight, closing=%s" % [r.arrow_frames, r.arrow_closing])
+	_check("arrow attaches to the anchor before any pull", r.attached_on_anchor and not r.pulled_before_attach)
+	_check("cable connects the player's hand to the attached arrow", r.cable_ok, r.cable_detail)
+	var ev: Array = r.events
+	var fire_at := ev.find(&"fired")
+	_check("order: dive + bullet time -> fire -> attach -> pull -> land", fire_at > 0 and ev.find(&"dive") in range(fire_at)
+			and ev.find(&"slow_time") in range(fire_at) and ev.slice(fire_at) == [&"fired", &"attached", &"pull", &"arrived"], str(ev))
 	_check("player reaches the grapple point", r.arrived and r.arrive_dist < 1.0, "arrived=%s, %.2f m from the anchor" % [r.arrived, r.arrive_dist])
 	_check("lands on Tower B's roof", r.on_floor and absf(r.landed.y - 8.0) < 0.1 and r.landed.z < -40.2 and r.landed.z > -48.0,
 			"landed at %s" % r.landed)
 	_check("not stuck in geometry", r.clear)
+	_check("arrow and cable cleared after landing", r.cleared)
 	Input.action_press(&"move_forward")
 	await _phys(30)
 	var walk := player.horizontal_speed()
@@ -759,7 +770,7 @@ func test_window_grapple_loop() -> void:
 	# Same dive without pressing grapple: it never grapples by itself.
 	r = await _tower_dive(anchor_b, false)
 	_check("anchor was targeted during the fall", r.target_seen)
-	_check("no grapple without a deliberate press", not r.grappled)
+	_check("no arrow and no grapple without a deliberate press", not r.fired and not r.pulled)
 	_check("dive exit hands over to a normal fall (not dragged down, no mid-air jump)", r.exit_y > 9.6 and not r.jumped_after_exit,
 			"exit y %.2f, jumped %s" % [r.exit_y, r.jumped_after_exit])
 	_check("falls to the ground between the towers, safely", r.on_floor and absf(r.landed.y) < 0.1 and r.clear, "landed at %s" % r.landed)
@@ -784,7 +795,9 @@ func test_window_grapple_loop() -> void:
 	_check("aimed away: no target", player.grapple.target == null)
 	await _tap(&"grapple")
 	await _phys(5)
-	_check("grapple press with no target does nothing", player.state == Player.State.MOVE and player.last_action != &"grapple")
+	_check("grapple press with no target does nothing (no arrow fired)", player.state == Player.State.MOVE
+			and player.grapple.arrow == null and player.last_action != &"grapple_fire" and player.last_action != &"grapple",
+			str(player.last_action))
 	await _place(Vector3(30, 0.05, 30.0), 180.0)
 	_aim_at(anchor_a.global_position)
 	await _phys(3)
@@ -802,13 +815,14 @@ func test_window_grapple_loop() -> void:
 	var on_finish := func(a: bool) -> void: finished[0] = a
 	player.grapple_finished.connect(on_finish)
 	await _tap(&"grapple")
-	await _phys(10)
+	await _wait_until(func() -> bool: return player.state == Player.State.GRAPPLE, 1.0) # arrow has stuck
+	await _phys(5)
 	var pulling := player.state == Player.State.GRAPPLE
 	await _tap(&"grapple")
 	await _phys(3)
 	player.grapple_finished.disconnect(on_finish)
-	_check("pressing grapple again lets go mid-pull", pulling and finished[0] == false and player.state == Player.State.MOVE,
-			"pulling=%s finished=%s" % [pulling, finished[0]])
+	_check("pressing grapple again lets go mid-pull (arrow and cable removed)", pulling and finished[0] == false
+			and player.state == Player.State.MOVE and player.grapple.arrow == null, "pulling=%s finished=%s" % [pulling, finished[0]])
 	await _wait_until(func() -> bool: return player.is_on_floor(), 4.0)
 
 	# The front (ground) window also takes an airborne E, both directions.
@@ -861,27 +875,36 @@ func _grapple_showcase(win: TraversalWindow, anchor: GrappleAnchor, start: Vecto
 	_aim_at(anchor.global_position)
 	await _phys(2)
 	await _tap(&"grapple")
+	await _shot("17_grapple_arrow_flight", 0, false)
+	await _wait_until(func() -> bool: return player.state == Player.State.GRAPPLE, 2.0)
+	await _shot("18_grapple_arrow_attached", 0, false)
 	await _phys(8)
-	await _shot("17_grapple_pull", 0, false)
+	await _shot("19_grapple_pull", 0, false)
 	await _wait_until(func() -> bool: return player.state != Player.State.GRAPPLE, 3.0)
 	await _wait_until(func() -> bool: return player.is_on_floor(), 3.0)
 	player.camera.yaw = deg_to_rad(180.0) # look back at Tower A
 	await _phys(20)
-	await _shot("18_landed_on_tower_b")
+	await _shot("20_landed_on_tower_b")
 
 
 ## Sprint at the tower window from the start marker, jump, press E in the air,
-## then (optionally) grapple to `anchor` once clear of the window.
+## then (optionally) fire the grapple arrow at `anchor` once clear of the
+## window and follow it: flight, attach, cable, pull, landing.
 func _tower_dive(anchor: GrappleAnchor, press_grapple: bool) -> Dictionary:
 	var area := front_window.get_parent().get_parent().get_node("GrappleTestArea")
 	var win := area.get_node("PenthouseWindow") as TraversalWindow
+	var grapple := player.grapple
 	var out := {prompt_in_air = "", dove = false, ids = [], slow_at_dive = false, scale_at_dive = 1.0, bt_length = 0.0,
-			out_airborne = false, clear_pos = Vector3.ZERO, target_seen = false, grappled = false, grapple_airborne = false,
-			cut_dive_short = false, arrived = false, arrive_dist = INF, exit_y = 0.0, jumped_after_exit = false,
-			landed = Vector3.ZERO, on_floor = false, clear = false}
+			out_airborne = false, clear_pos = Vector3.ZERO, target_seen = false, fired = false, fired_airborne = false,
+			cut_dive_short = false, arrow_frames = 0, arrow_closing = true, attached_on_anchor = false,
+			pulled = false, pulled_before_attach = false, cable_ok = false, cable_detail = "", events = [],
+			arrived = false, arrive_dist = INF, exit_y = 0.0, jumped_after_exit = false,
+			landed = Vector3.ZERO, on_floor = false, clear = false, cleared = false}
 	await _place((area.get_node("GrappleTestStart") as Node3D).global_position, 0.0)
 	var bt_times := [0, 0]
-	var on_bt_start := func() -> void: bt_times[0] = Time.get_ticks_usec()
+	var on_bt_start := func() -> void:
+		bt_times[0] = Time.get_ticks_usec()
+		out.events.append(&"slow_time")
 	var on_bt_end := func() -> void: bt_times[1] = Time.get_ticks_usec()
 	var dive := [null]
 	var on_traversal := func(id: StringName) -> void:
@@ -890,21 +913,31 @@ func _tower_dive(anchor: GrappleAnchor, press_grapple: bool) -> Dictionary:
 			dive[0] = player.current_motion
 			out.slow_at_dive = player.bullet_time.active
 			out.scale_at_dive = Engine.time_scale
+			out.events.append(&"dive")
 	var on_traversal_end := func(id: StringName) -> void:
 		if id == &"window_dive":
 			out.exit_y = player.global_position.y
-	var on_grapple := func(_a: GrappleAnchor) -> void:
-		out.grappled = true
-		out.grapple_airborne = player.global_position.y > 9.0 and not player.is_on_floor()
+	var on_fired := func(_a: GrappleAnchor) -> void:
+		out.fired = true
+		out.fired_airborne = player.global_position.y > 9.0 and not player.is_on_floor()
 		out.cut_dive_short = dive[0] != null and not (dive[0] as TraversalMotion).is_finished()
+		out.events.append(&"fired")
+		grapple.arrow.attached.connect(func(_b: GrappleAnchor) -> void: out.events.append(&"attached"))
+	var on_pull := func(_a: GrappleAnchor) -> void:
+		out.pulled = true
+		out.pulled_before_attach = not grapple.is_attached()
+		out.attached_on_anchor = grapple.is_attached() and grapple.arrow.global_position.distance_to(anchor.global_position) < 0.01
+		out.events.append(&"pull")
 	var on_grapple_end := func(arrived: bool) -> void:
 		out.arrived = arrived
 		out.arrive_dist = player.global_position.distance_to(anchor.global_position)
+		out.events.append(&"arrived" if arrived else &"ended")
 	player.bullet_time.started.connect(on_bt_start)
 	player.bullet_time.ended.connect(on_bt_end)
 	player.traversal_started.connect(on_traversal)
 	player.traversal_finished.connect(on_traversal_end)
-	player.grapple_started.connect(on_grapple)
+	player.grapple_fired.connect(on_fired)
+	player.grapple_started.connect(on_pull)
 	player.grapple_finished.connect(on_grapple_end)
 
 	Input.action_press(&"move_forward")
@@ -927,7 +960,25 @@ func _tower_dive(anchor: GrappleAnchor, press_grapple: bool) -> Dictionary:
 	out.target_seen = player.grapple.target == anchor and anchor.is_targeted()
 	if press_grapple:
 		await _tap(&"grapple")
-		await _wait_until(func() -> bool: return out.grappled and player.state != Player.State.GRAPPLE, 4.0)
+		# Follow the arrow: it must close on the anchor every frame until it sticks.
+		var last := INF
+		while grapple.is_arrow_flying() and out.arrow_frames < 120:
+			var d := grapple.arrow.global_position.distance_to(anchor.global_position)
+			out.arrow_closing = out.arrow_closing and d < last
+			last = d
+			out.arrow_frames += 1
+			await physics_frame
+		# Cable connected: player's hand -> the stuck arrow's nock.
+		await _wait_until(func() -> bool: return player.state == Player.State.GRAPPLE, 1.0)
+		await _frames(2)
+		if grapple.arrow != null:
+			var ends := _cable_ends()
+			var hand := player.get_global_transform_interpolated().origin + Vector3.UP * grapple.hand_height
+			var hand_gap := ends[0].distance_to(hand)
+			var nock_gap := ends[1].distance_to(grapple.arrow.nock_position())
+			out.cable_ok = grapple._cable.visible and hand_gap < 0.5 and nock_gap < 0.05
+			out.cable_detail = "hand gap %.2f m, nock gap %.3f m" % [hand_gap, nock_gap]
+		await _wait_until(func() -> bool: return out.fired and player.state == Player.State.MOVE, 4.0)
 	else:
 		# Try Space right after the exit: no coyote jump in mid-air.
 		await _wait_until(func() -> bool: return player.state == Player.State.MOVE, 2.0)
@@ -942,11 +993,13 @@ func _tower_dive(anchor: GrappleAnchor, press_grapple: bool) -> Dictionary:
 	out.landed = player.global_position
 	out.on_floor = player.is_on_floor()
 	out.clear = player.sensor.has_clearance(player.global_position, settings.standing_height)
+	out.cleared = grapple.arrow == null and not grapple._cable.visible
 	player.bullet_time.started.disconnect(on_bt_start)
 	player.bullet_time.ended.disconnect(on_bt_end)
 	player.traversal_started.disconnect(on_traversal)
 	player.traversal_finished.disconnect(on_traversal_end)
-	player.grapple_started.disconnect(on_grapple)
+	player.grapple_fired.disconnect(on_fired)
+	player.grapple_started.disconnect(on_pull)
 	player.grapple_finished.disconnect(on_grapple_end)
 	return out
 
@@ -992,6 +1045,222 @@ func _mouse_button(index: MouseButton, pressed: bool) -> void:
 	event.button_index = index
 	event.pressed = pressed
 	Input.parse_input_event(event)
+
+
+func test_grapple_arrow() -> void:
+	_section("Grapple arrow: fire -> fly -> attach -> cable -> pull")
+	var area := front_window.get_parent().get_parent().get_node("GrappleTestArea")
+	var anchor_a := area.get_node("AnchorTowerA") as GrappleAnchor
+	var anchor_b := area.get_node("AnchorTowerB") as GrappleAnchor
+	var grapple := player.grapple
+	var bt := player.bullet_time
+	var roof_b := Vector3(30, 8.05, -44.0)
+	var events := []
+	var on_fired := func(_a: GrappleAnchor) -> void: events.append(&"fired")
+	var on_pull := func(_a: GrappleAnchor) -> void: events.append(&"pull")
+	var on_end := func(arrived: bool) -> void: events.append(&"arrived" if arrived else &"ended")
+	player.grapple_fired.connect(on_fired)
+	player.grapple_started.connect(on_pull)
+	player.grapple_finished.connect(on_end)
+
+	# Standing on Tower B, fire at Tower A's anchor and follow the shot frame by frame.
+	await _place(roof_b, 180.0)
+	_aim_at(anchor_a.global_position)
+	await _phys(3)
+	events.clear()
+	var feet := player.global_position
+	var shot := {}
+	var on_shot := func(a: GrappleAnchor) -> void: # the moment of release
+		shot.arrow = grapple.arrow
+		shot.nock_gap = (grapple.arrow.global_transform * Vector3(0, 0, GrappleArrow.LENGTH)).distance_to(grapple.hand_position())
+		shot.aim = (-grapple.arrow.global_basis.z).dot((a.global_position - grapple.arrow.global_position).normalized())
+	player.grapple_fired.connect(on_shot)
+	await _tap(&"grapple")
+	player.grapple_fired.disconnect(on_shot)
+	_check("grapple press fires an arrow (arrow in flight, not pulling yet)", events == [&"fired"]
+			and player.state == Player.State.GRAPPLE_FIRE and grapple.is_arrow_flying(), "%s %s" % [events, Player.State.keys()[player.state]])
+	var arrow: GrappleArrow = shot.get("arrow")
+	var parts := arrow.find_children("*", "MeshInstance3D", true, false).size() if arrow else 0
+	_check("it is a real arrow: a GrappleArrow with placeholder geometry (head, claws, shaft, fletching)",
+			arrow != null and arrow.is_visible_in_tree() and parts >= 8, "%d mesh parts" % parts)
+	_check("released from the hand, nocked in front of the body, aimed at the anchor",
+			shot.get("nock_gap", INF) < 0.5 and shot.get("aim", 0.0) > 0.999, "nock %.2f m from the hand, aim dot %.4f"
+			% [shot.get("nock_gap", INF), shot.get("aim", 0.0)])
+	var dists: Array[float] = []
+	var cable: Array[float] = []
+	var moved := 0.0
+	var pulled_in_flight := false
+	while grapple.is_arrow_flying() and dists.size() < 120:
+		dists.append(grapple.arrow.global_position.distance_to(anchor_a.global_position))
+		cable.append(grapple._cable.global_transform.basis.y.length() if grapple._cable.visible else 0.0)
+		moved = maxf(moved, player.global_position.distance_to(feet))
+		pulled_in_flight = pulled_in_flight or player.state == Player.State.GRAPPLE or events.has(&"pull")
+		await physics_frame
+	var closing := dists.size() >= 3
+	var paying_out := cable.size() >= 3 and cable[0] > 0.0
+	for i in range(1, dists.size()):
+		closing = closing and dists[i] < dists[i - 1]
+		paying_out = paying_out and cable[i] >= cable[i - 1] - 0.01
+	var speed := (dists[0] - dists[-1]) / maxf(dists.size() - 1, 1) * Engine.physics_ticks_per_second if dists.size() > 1 else 0.0
+	_check("arrow travels to the anchor at arrow speed (~%.0f m/s)" % grapple.arrow_speed, closing
+			and absf(speed - grapple.arrow_speed) < 1.0, "%.1f m/s over %d frames" % [speed, dists.size()])
+	_check("cable pays out behind the arrow while it flies", paying_out and cable[-1] > cable[0] + 2.0,
+			"%.1f m -> %.1f m" % [cable[0] if cable.size() else 0.0, cable[-1] if cable.size() else 0.0])
+	_check("player is not pulled while the arrow flies", not pulled_in_flight and moved < 0.2, "moved %.2f m" % moved)
+	var tip_gap := arrow.global_position.distance_to(anchor_a.global_position) if is_instance_valid(arrow) else INF
+	_check("arrow attaches: stuck with its tip in the anchor", is_instance_valid(arrow) and arrow.phase == GrappleArrow.Phase.ATTACHED
+			and tip_gap < 0.01, "tip %.3f m from the anchor" % tip_gap)
+	await _wait_until(func() -> bool: return player.state == Player.State.GRAPPLE, 0.5)
+	await _frames(2)
+	var ends := _cable_ends()
+	var hand := player.get_global_transform_interpolated().origin + Vector3.UP * grapple.hand_height
+	var hand_gap := ends[0].distance_to(hand)
+	var nock_gap := ends[1].distance_to(arrow.nock_position()) if is_instance_valid(arrow) else INF
+	_check("cable connects the player's hand to the attached arrow's nock", grapple._cable.visible and hand_gap < 0.3 and nock_gap < 0.05,
+			"hand gap %.2f m, nock gap %.3f m" % [hand_gap, nock_gap])
+	_check("pull begins only after the arrow attached", events == [&"fired", &"pull"] and player.state == Player.State.GRAPPLE, str(events))
+	await _wait_until(func() -> bool: return events.size() >= 3, 4.0)
+	await _wait_until(func() -> bool: return player.is_on_floor(), 4.0)
+	await _phys(5)
+	_check("pulled along the cable and lands on Tower A", events == [&"fired", &"pull", &"arrived"] and player.is_on_floor()
+			and absf(player.global_position.y - 10.0) < 0.1, "%s at %s" % [events, player.global_position])
+	_check("arrow and cable removed once the grapple is over", grapple.arrow == null and not grapple._cable.visible
+			and not is_instance_valid(arrow))
+
+	# Grapple again while the arrow is still flying: let go, no pull.
+	await _place(roof_b, 180.0)
+	_aim_at(anchor_a.global_position)
+	await _phys(3)
+	events.clear()
+	await _tap(&"grapple")
+	var cancelled := grapple.arrow
+	var was_flying := grapple.is_arrow_flying()
+	await _tap(&"grapple")
+	await _phys(3)
+	_check("grapple again mid-flight: lets go (arrow and cable removed, no pull)", was_flying and events == [&"fired", &"ended"]
+			and player.state == Player.State.MOVE and player.last_action == &"grapple_release" and grapple.arrow == null
+			and not grapple._cable.visible and not is_instance_valid(cancelled), "%s last %s" % [events, player.last_action])
+	_check("still standing on Tower B afterwards", player.is_on_floor() and absf(player.global_position.y - 8.0) < 0.1,
+			str(player.global_position))
+
+	# The anchor goes away while the arrow flies: it misses and the grapple ends safely.
+	await _place(roof_b, 180.0)
+	_aim_at(anchor_a.global_position)
+	await _phys(3)
+	events.clear()
+	await _tap(&"grapple")
+	var missed := [false]
+	grapple.arrow.missed.connect(func() -> void: missed[0] = true)
+	anchor_a.enabled = false
+	await _phys(3)
+	anchor_a.enabled = true
+	_check("anchor disabled mid-flight: arrow misses, grapple ends, no pull", missed[0] and events == [&"fired", &"ended"]
+			and player.state == Player.State.MOVE and player.last_action == &"grapple_miss" and grapple.arrow == null,
+			"%s last %s" % [events, player.last_action])
+
+	# Something moves into the arrow's path: it strikes it and the grapple ends.
+	await _place(roof_b, 180.0)
+	_aim_at(anchor_a.global_position)
+	await _phys(3)
+	events.clear()
+	await _tap(&"grapple")
+	var path_mid := grapple.hand_position().lerp(anchor_a.global_position, 0.6)
+	var wall := _temp_wall(path_mid, anchor_a.global_position)
+	var struck := [Vector3.INF]
+	var blocked := grapple.arrow
+	blocked.missed.connect(func() -> void: struck[0] = blocked.global_position)
+	await _wait_until(func() -> bool: return player.state == Player.State.MOVE, 1.0)
+	wall.queue_free()
+	var wall_gap := (struck[0] as Vector3).distance_to(path_mid)
+	_check("path blocked mid-flight: arrow strikes the obstacle, grapple ends, no pull", wall_gap < 0.5
+			and events == [&"fired", &"ended"] and player.last_action == &"grapple_miss" and absf(player.global_position.y - 8.0) < 0.1,
+			"struck %.2f m from the wall, %s" % [wall_gap, events])
+
+	# Safety net: an arrow still flying past its time limit counts as a miss.
+	await _place(roof_b, 180.0)
+	_aim_at(anchor_a.global_position)
+	await _phys(3)
+	events.clear()
+	await _tap(&"grapple")
+	grapple.arrow.max_flight_time = 0.0
+	await _phys(3)
+	_check("arrow flight timeout: counts as a miss, grapple ends", events == [&"fired", &"ended"]
+			and player.last_action == &"grapple_miss" and player.state == Player.State.MOVE, str(events))
+
+	# Off Tower B's edge in slow time: the arrow flies in game time (slowed with
+	# everything else) and still carries the player up to Tower A.
+	await _place(Vector3(32, 8.05, -41.5), 180.0)
+	_aim_at(anchor_a.global_position)
+	events.clear()
+	Input.action_press(&"move_forward")
+	await _wait_until(func() -> bool: return not player.is_on_floor() and player.global_position.y < 7.3, 2.0)
+	Input.action_release(&"move_forward")
+	await _tap(&"jump")
+	var at_fire := {slow = false, scale = 1.0}
+	var on_slow_fire := func(_a: GrappleAnchor) -> void:
+		at_fire.slow = bt.active
+		at_fire.scale = Engine.time_scale
+	player.grapple_fired.connect(on_slow_fire)
+	_aim_at(anchor_a.global_position)
+	await _tap(&"grapple")
+	player.grapple_fired.disconnect(on_slow_fire)
+	# Physics ticks keep their real-time rate; slow time shrinks each tick's delta.
+	var real_speed := 0.0
+	var slow_throughout := bt.active
+	if grapple.is_arrow_flying():
+		var p0 := grapple.arrow.global_position
+		await physics_frame
+		slow_throughout = slow_throughout and bt.active
+		if grapple.is_arrow_flying():
+			real_speed = p0.distance_to(grapple.arrow.global_position) * Engine.physics_ticks_per_second
+	_check("arrow fired during bullet time (0.3x untouched)", at_fire.slow and is_equal_approx(at_fire.scale, bt.time_scale),
+			"slow %s, scale %.2f" % [at_fire.slow, at_fire.scale])
+	_check("arrow flies in game time: slowed to 0.3x with everything else", slow_throughout
+			and absf(real_speed - grapple.arrow_speed * bt.time_scale) < 1.0, "%.1f m/s real (%.0f x %.1f)"
+			% [real_speed, grapple.arrow_speed, bt.time_scale])
+	await _wait_until(func() -> bool: return events.size() >= 3, 4.0)
+	await _wait_until(func() -> bool: return player.is_on_floor(), 4.0)
+	await _real_until(func() -> bool: return not bt.active, 1.0)
+	await _phys(5)
+	_check("slow-time shot: attaches, pulls, lands on Tower A", events == [&"fired", &"pull", &"arrived"] and player.is_on_floor()
+			and absf(player.global_position.y - 10.0) < 0.1, "%s at %s" % [events, player.global_position])
+	_check("bullet time still ends by itself (time scale back to 1)", not bt.active and is_equal_approx(Engine.time_scale, 1.0))
+
+	# The arrow is self-contained: it flies and sticks without the player.
+	await _place(Vector3(20, 0, 30), 0.0)
+	var solo := GrappleArrow.new()
+	root.add_child(solo)
+	var stuck := [null]
+	solo.attached.connect(func(a: GrappleAnchor) -> void: stuck[0] = a)
+	solo.launch(Vector3(30, 12, -33), anchor_b)
+	await _wait_until(func() -> bool: return stuck[0] != null, 1.0)
+	_check("GrappleArrow works on its own (no player involved)", stuck[0] == anchor_b and solo.is_attached()
+			and solo.global_position.distance_to(anchor_b.global_position) < 0.01 and player.state == Player.State.MOVE
+			and grapple.arrow == null)
+	solo.queue_free()
+	player.grapple_fired.disconnect(on_fired)
+	player.grapple_started.disconnect(on_pull)
+	player.grapple_finished.disconnect(on_end)
+
+
+## World-space ends of the drawn grapple cable: [player end, far end].
+func _cable_ends() -> Array[Vector3]:
+	var xform := player.grapple._cable.global_transform
+	var ends: Array[Vector3] = [xform.origin - xform.basis.y * 0.5, xform.origin + xform.basis.y * 0.5]
+	return ends
+
+
+## A temporary 3x3 m wall centred on `center`, square to the line toward `facing`.
+func _temp_wall(center: Vector3, facing: Vector3) -> StaticBody3D:
+	var box := BoxShape3D.new()
+	box.size = Vector3(3.0, 3.0, 0.3)
+	var shape := CollisionShape3D.new()
+	shape.shape = box
+	var wall := StaticBody3D.new()
+	wall.add_child(shape)
+	root.add_child(wall)
+	wall.look_at_from_position(center, facing)
+	return wall
 
 
 func test_character() -> void:

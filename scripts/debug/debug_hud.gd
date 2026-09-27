@@ -4,7 +4,7 @@ extends CanvasLayer
 const CONTROLS := """
 WASD move  |  Shift sprint  |  Space jump (in the air, high up: slow time)  |  C / Ctrl crouch
 Window: E to dive through (either side, on foot or mid-jump)  |  E elsewhere: vault / climb
-Grapple: aim at a glowing anchor, Right mouse / F (again to let go)
+Grapple arrow: aim at a glowing anchor, Right mouse / F to fire (again to let go)
 Hanging: Space/E climb, A/D shimmy, C drop
 Mouse orbit  |  Esc release mouse  |  Click recapture  |  R respawn  |  F1 hide help"""
 
