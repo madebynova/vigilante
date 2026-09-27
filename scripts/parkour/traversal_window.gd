@@ -82,6 +82,13 @@ func takeoff_point(pos: Vector3) -> Vector3:
 	return to_global(Vector3(_lane_x(local.x), local.y, side_of(pos) * depth))
 
 
+## True if feet at `pos` are at a height where diving through the opening
+## makes sense (standing below the sill, or airborne around it).
+func feet_in_reach(pos: Vector3) -> bool:
+	var y := to_local(pos).y
+	return y >= -1.4 and y <= 0.8
+
+
 ## Builds the movement through the opening from `start`.
 func build_motion(start: Vector3, speed: float, style: Style) -> TraversalMotion:
 	var s := side_of(start)
@@ -96,13 +103,20 @@ func build_motion(start: Vector3, speed: float, style: Style) -> TraversalMotion
 			pts.append(to_global(Vector3(x, -0.1, s * (half + 0.45))))
 			pts.append(to_global(Vector3(x, -0.25, 0.0)))
 			pts.append(to_global(Vector3(x, -0.45, -s * (half + 0.6))))
-			pts.append(land)
+			var has_floor := _has_landing(x, s)
+			if has_floor:
+				pts.append(land)
+			else:
+				# Nothing to land on (a high window): dive out into the open air
+				# and hand the momentum over to normal falling.
+				pts.append(to_global(Vector3(x, -0.6, -s * (half + 1.3))))
 			m = TraversalMotion.new(&"window_dive", _ahead_of(pts, start), 1.0)
 			m.duration = clampf(m.length() / (speed * 1.05), 0.35, 0.6)
 			m.exit_velocity = through_direction(start) * speed * 1.12
 			m.body_pitch = -1.4
-			m.tumble_turns = 1
-			m.landing_shake = 0.15
+			m.tumble_turns = 1 if has_floor else 0
+			m.landing_shake = 0.15 if has_floor else 0.0
+			m.ends_airborne = not has_floor
 		Style.VAULT:
 			# Hands on the sill, legs swing through.
 			pts.append(to_global(Vector3(x, 0.0, s * (half + 0.35))))
@@ -144,11 +158,20 @@ func _lane_x(local_x: float) -> float:
 
 
 func _landing_point(x: float, side: float) -> Vector3:
+	var hit := _landing_hit(x, side)
+	return hit.position if not hit.is_empty() else to_global(Vector3(x, -3.0, -side * landing_distance))
+
+
+## True if there is floor to land on within reach beyond the opening.
+func _has_landing(x: float, side: float) -> bool:
+	return not _landing_hit(x, side).is_empty()
+
+
+func _landing_hit(x: float, side: float) -> Dictionary:
 	var above := to_global(Vector3(x, 0.5, -side * landing_distance))
 	var below := to_global(Vector3(x, -3.0, -side * landing_distance))
 	var query := PhysicsRayQueryParameters3D.create(above, below, 1)
-	var hit := get_world_3d().direct_space_state.intersect_ray(query)
-	return hit.position if not hit.is_empty() else below
+	return get_world_3d().direct_space_state.intersect_ray(query)
 
 
 func _on_body_entered(body: Node3D) -> void:

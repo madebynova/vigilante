@@ -17,6 +17,9 @@ var exit_velocity := Vector3.ZERO
 ## Seconds of reduced control afterwards (used for clumsy results).
 var recovery_time := 0.0
 var end_crouched := false
+## The move ends in mid-air (e.g. diving out of a high window): hand over to
+## normal falling instead of a landing.
+var ends_airborne := false
 ## 0 = constant speed, 1 = strong slow-down towards the end.
 var ease_out := 0.0
 

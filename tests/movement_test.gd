@@ -8,10 +8,10 @@ extends SceneTree
 ##   godot --path . -s res://tests/movement_test.gd -- --shots=C:/some/dir
 
 const ACTIONS: Array[StringName] = [&"move_forward", &"move_back", &"move_left", &"move_right",
-		&"sprint", &"jump", &"crouch", &"traverse"]
+		&"sprint", &"jump", &"crouch", &"traverse", &"grapple"]
 ## Real keys for movement actions, sent as key events like a keyboard would.
 const KEY_FOR := {&"move_forward": KEY_W, &"move_left": KEY_A, &"move_back": KEY_S,
-		&"move_right": KEY_D, &"jump": KEY_SPACE, &"traverse": KEY_E}
+		&"move_right": KEY_D, &"jump": KEY_SPACE, &"traverse": KEY_E, &"grapple": KEY_F}
 
 var player: Player
 var settings: MovementSettings
@@ -47,7 +47,10 @@ func _run() -> void:
 	await test_ledges()
 	await test_slow_time()
 	await test_windows()
+	await test_window_grapple_loop()
 	await test_character()
+	await test_idle_animation()
+	await test_neutral_stance()
 	await test_gaps_and_ramp()
 	await test_respawn()
 	print("\n==== %d passed, %d failed ====" % [passed, failed])
@@ -687,6 +690,310 @@ func _window_run(opts := {}) -> Dictionary:
 	return out
 
 
+func test_window_grapple_loop() -> void:
+	_section("Window -> bullet time -> grapple -> next building")
+	var area := front_window.get_parent().get_parent().get_node("GrappleTestArea")
+	var win := area.get_node("PenthouseWindow") as TraversalWindow
+	var anchor_a := area.get_node("AnchorTowerA") as GrappleAnchor
+	var anchor_b := area.get_node("AnchorTowerB") as GrappleAnchor
+	var start := (area.get_node("GrappleTestStart") as Node3D).global_position
+	var bt := player.bullet_time
+	var ids := _record_traversals()
+	_check("test area: tower window, two anchors, start marker", win.dive_window and anchor_a != null and anchor_b != null)
+	_check("grapple input exists (Right mouse / F), separate from E and Space", InputMap.has_action(&"grapple")
+			and InputMap.action_get_events(&"grapple").size() == 2)
+
+	# E does nothing with no window around.
+	await _place(Vector3(20, 0, 30), 0.0)
+	ids.clear()
+	await _tap(&"traverse")
+	await _phys(20)
+	_check("E with no window nearby: nothing happens", ids.is_empty() and player.state == Player.State.MOVE, str(ids))
+
+	# Sprinting or jumping into the tower window without E: no traversal.
+	ids.clear()
+	await _place(start, 0.0)
+	Input.action_press(&"move_forward")
+	Input.action_press(&"sprint")
+	await _phys(70)
+	_release_all()
+	_check("sprint into the tower window without E: no traversal", ids.is_empty() and player.global_position.z > win.global_position.z
+			and absf(player.global_position.y - 10.0) < 0.1, "%s at %s" % [ids, player.global_position])
+	ids.clear()
+	await _place(start, 0.0)
+	Input.action_press(&"move_forward")
+	Input.action_press(&"sprint")
+	await _wait_until(func() -> bool: return win.distance_to_wall(player.global_position) < 2.6, 2.0)
+	await _tap(&"jump")
+	await _phys(60)
+	_release_all()
+	_check("sprint-jump into the tower window without E: no traversal", ids.is_empty() and player.global_position.z > win.global_position.z,
+			"%s at %s" % [ids, player.global_position])
+
+	# THE SEQUENCE: sprint -> jump -> E in the air -> dive out -> bullet time -> aim -> grapple -> Tower B.
+	var r := await _tower_dive(anchor_b, true)
+	_check("prompt shows [E] DIVE THROUGH mid-jump", r.prompt_in_air == "E DIVE THROUGH", "'%s'" % r.prompt_in_air)
+	_check("E in the air dives through the window", r.dove, str(r.ids))
+	_check("bullet time starts at the dive (0.3x)", r.slow_at_dive and is_equal_approx(r.scale_at_dive, bt.time_scale), "%.2f" % r.scale_at_dive)
+	_check("bullet time lasts ~0.4 s and ends by itself", absf(r.bt_length - 0.4) < 0.06, "%.3f s" % r.bt_length)
+	_check("dive carries the player out of the window, airborne", r.out_airborne, "clear of the frame at %s" % r.clear_pos)
+	_check("anchor on Tower B targeted and highlighted", r.target_seen)
+	_check("grapple fires while airborne (straight out of the dive)", r.grappled and r.grapple_airborne and r.cut_dive_short,
+			"grappled=%s airborne=%s cut_short=%s" % [r.grappled, r.grapple_airborne, r.cut_dive_short])
+	_check("player reaches the grapple point", r.arrived and r.arrive_dist < 1.0, "arrived=%s, %.2f m from the anchor" % [r.arrived, r.arrive_dist])
+	_check("lands on Tower B's roof", r.on_floor and absf(r.landed.y - 8.0) < 0.1 and r.landed.z < -40.2 and r.landed.z > -48.0,
+			"landed at %s" % r.landed)
+	_check("not stuck in geometry", r.clear)
+	Input.action_press(&"move_forward")
+	await _phys(30)
+	var walk := player.horizontal_speed()
+	_release_all()
+	await _phys(5)
+	_key_event(&"jump", true)
+	var jumped := await _wait_until(func() -> bool: return player.velocity.y > 3.0, 0.3)
+	_key_event(&"jump", false)
+	_check("normal movement afterwards (walk + jump on Tower B)", absf(walk - settings.walk_speed) < 0.3 and jumped,
+			"walk %.2f, jumped %s" % [walk, jumped])
+	await _wait_until(func() -> bool: return player.is_on_floor(), 2.0)
+
+	# Same dive without pressing grapple: it never grapples by itself.
+	r = await _tower_dive(anchor_b, false)
+	_check("anchor was targeted during the fall", r.target_seen)
+	_check("no grapple without a deliberate press", not r.grappled)
+	_check("dive exit hands over to a normal fall (not dragged down, no mid-air jump)", r.exit_y > 9.6 and not r.jumped_after_exit,
+			"exit y %.2f, jumped %s" % [r.exit_y, r.jumped_after_exit])
+	_check("falls to the ground between the towers, safely", r.on_floor and absf(r.landed.y) < 0.1 and r.clear, "landed at %s" % r.landed)
+
+	# Grapple from a normal fall (no dive), steep from well below the anchor.
+	await _place(Vector3(30, 4.0, -35.0), 0.0)
+	var g := await _grapple_to(anchor_b, "key")
+	_check("mid-air grapple from 4.5 m below: arrives and lands on Tower B", g.arrived and g.on_floor and absf(g.landed.y - 8.0) < 0.1
+			and g.landed.z < -40.2, "landed at %s" % g.landed)
+
+	# From Tower B's roof back up to Tower A (on foot, right mouse button): the loop repeats.
+	await _place(Vector3(30, 8.05, -44.0), 180.0)
+	g = await _grapple_to(anchor_a, "mouse")
+	_check("grapple from the ground with right mouse: back up to Tower A", g.arrived and g.on_floor and absf(g.landed.y - 10.0) < 0.1
+			and g.landed.x > 25.2 and g.landed.z > -28.0, "landed at %s" % g.landed)
+	_check("not stuck in geometry after the return", g.clear)
+
+	# Invalid targets: aimed away, out of range, behind a building.
+	await _place(Vector3(30, 8.05, -44.0), 180.0)
+	player.camera.yaw = deg_to_rad(90.0)
+	await _phys(3)
+	_check("aimed away: no target", player.grapple.target == null)
+	await _tap(&"grapple")
+	await _phys(5)
+	_check("grapple press with no target does nothing", player.state == Player.State.MOVE and player.last_action != &"grapple")
+	await _place(Vector3(30, 0.05, 30.0), 180.0)
+	_aim_at(anchor_a.global_position)
+	await _phys(3)
+	_check("out of range (58 m): no target", player.grapple.target == null)
+	await _place(Vector3(30, 0.05, -52.0), 180.0)
+	_aim_at(anchor_b.global_position)
+	await _phys(3)
+	_check("anchor behind a building (no line of sight): no target", player.grapple.target == null)
+
+	# Pressing grapple again lets go mid-pull.
+	await _place(Vector3(30, 8.05, -44.0), 180.0)
+	_aim_at(anchor_a.global_position)
+	await _phys(3)
+	var finished := [null]
+	var on_finish := func(a: bool) -> void: finished[0] = a
+	player.grapple_finished.connect(on_finish)
+	await _tap(&"grapple")
+	await _phys(10)
+	var pulling := player.state == Player.State.GRAPPLE
+	await _tap(&"grapple")
+	await _phys(3)
+	player.grapple_finished.disconnect(on_finish)
+	_check("pressing grapple again lets go mid-pull", pulling and finished[0] == false and player.state == Player.State.MOVE,
+			"pulling=%s finished=%s" % [pulling, finished[0]])
+	await _wait_until(func() -> bool: return player.is_on_floor(), 4.0)
+
+	# The front (ground) window also takes an airborne E, both directions.
+	ids.clear()
+	await _place(Vector3(0, 0, front_window.global_position.z + 6.0), 0.0)
+	Input.action_press(&"move_forward")
+	Input.action_press(&"sprint")
+	await _wait_until(func() -> bool: return front_window.distance_to_wall(player.global_position) < 2.6, 2.0)
+	await _tap(&"jump")
+	await _phys(1)
+	await _tap(&"traverse")
+	await _wait_until(func() -> bool: return player.state != Player.State.TRAVERSAL and ids.size() > 0, 3.0)
+	_release_all()
+	await _phys(20)
+	_check("front window: jump + E dives IN", ids.has(&"window_dive") and player.global_position.z < -26.5 and player.is_on_floor(),
+			"%s at %s" % [ids, player.global_position])
+	ids.clear()
+	await _place(Vector3(0, 0, -32.5), 180.0)
+	Input.action_press(&"move_forward")
+	Input.action_press(&"sprint")
+	await _wait_until(func() -> bool: return front_window.distance_to_wall(player.global_position) < 2.6, 2.0)
+	await _tap(&"jump")
+	await _phys(1)
+	await _tap(&"traverse")
+	await _wait_until(func() -> bool: return player.state != Player.State.TRAVERSAL and ids.size() > 0, 3.0)
+	_release_all()
+	await _phys(20)
+	_check("front window: jump + E dives OUT", ids.has(&"window_dive") and player.global_position.z > -25.5 and player.is_on_floor(),
+			"%s at %s" % [ids, player.global_position])
+	_stop_recording()
+	if shots_dir != "":
+		await _grapple_showcase(win, anchor_b, start)
+
+
+## Screenshot-only replay of the sequence (no checks; runs after them so
+## screenshot stalls can't affect results).
+func _grapple_showcase(win: TraversalWindow, anchor: GrappleAnchor, start: Vector3) -> void:
+	await _place(start, 0.0)
+	Input.action_press(&"move_forward")
+	Input.action_press(&"sprint")
+	await _wait_until(func() -> bool: return win.distance_to_wall(player.global_position) < 2.6, 2.0)
+	await _tap(&"jump")
+	await _phys(1)
+	_release_all()
+	await _shot("15_tower_prompt_midjump", 0, false)
+	await _tap(&"traverse")
+	await _phys(3)
+	await _shot("16_tower_dive_bullet_time", 0, false)
+	await _wait_until(func() -> bool: return player.global_position.z < win.global_position.z - 0.7, 2.0)
+	_aim_at(anchor.global_position)
+	await _phys(2)
+	await _tap(&"grapple")
+	await _phys(8)
+	await _shot("17_grapple_pull", 0, false)
+	await _wait_until(func() -> bool: return player.state != Player.State.GRAPPLE, 3.0)
+	await _wait_until(func() -> bool: return player.is_on_floor(), 3.0)
+	player.camera.yaw = deg_to_rad(180.0) # look back at Tower A
+	await _phys(20)
+	await _shot("18_landed_on_tower_b")
+
+
+## Sprint at the tower window from the start marker, jump, press E in the air,
+## then (optionally) grapple to `anchor` once clear of the window.
+func _tower_dive(anchor: GrappleAnchor, press_grapple: bool) -> Dictionary:
+	var area := front_window.get_parent().get_parent().get_node("GrappleTestArea")
+	var win := area.get_node("PenthouseWindow") as TraversalWindow
+	var out := {prompt_in_air = "", dove = false, ids = [], slow_at_dive = false, scale_at_dive = 1.0, bt_length = 0.0,
+			out_airborne = false, clear_pos = Vector3.ZERO, target_seen = false, grappled = false, grapple_airborne = false,
+			cut_dive_short = false, arrived = false, arrive_dist = INF, exit_y = 0.0, jumped_after_exit = false,
+			landed = Vector3.ZERO, on_floor = false, clear = false}
+	await _place((area.get_node("GrappleTestStart") as Node3D).global_position, 0.0)
+	var bt_times := [0, 0]
+	var on_bt_start := func() -> void: bt_times[0] = Time.get_ticks_usec()
+	var on_bt_end := func() -> void: bt_times[1] = Time.get_ticks_usec()
+	var dive := [null]
+	var on_traversal := func(id: StringName) -> void:
+		out.ids.append(id)
+		if id == &"window_dive":
+			dive[0] = player.current_motion
+			out.slow_at_dive = player.bullet_time.active
+			out.scale_at_dive = Engine.time_scale
+	var on_traversal_end := func(id: StringName) -> void:
+		if id == &"window_dive":
+			out.exit_y = player.global_position.y
+	var on_grapple := func(_a: GrappleAnchor) -> void:
+		out.grappled = true
+		out.grapple_airborne = player.global_position.y > 9.0 and not player.is_on_floor()
+		out.cut_dive_short = dive[0] != null and not (dive[0] as TraversalMotion).is_finished()
+	var on_grapple_end := func(arrived: bool) -> void:
+		out.arrived = arrived
+		out.arrive_dist = player.global_position.distance_to(anchor.global_position)
+	player.bullet_time.started.connect(on_bt_start)
+	player.bullet_time.ended.connect(on_bt_end)
+	player.traversal_started.connect(on_traversal)
+	player.traversal_finished.connect(on_traversal_end)
+	player.grapple_started.connect(on_grapple)
+	player.grapple_finished.connect(on_grapple_end)
+
+	Input.action_press(&"move_forward")
+	Input.action_press(&"sprint")
+	await _wait_until(func() -> bool: return win.distance_to_wall(player.global_position) < 2.6, 2.0)
+	await _tap(&"jump")
+	await _phys(1)
+	if not player.is_on_floor():
+		out.prompt_in_air = player.prompt.hint_text()
+	await _tap(&"traverse")
+	await _wait_until(func() -> bool: return player.state == Player.State.TRAVERSAL, 0.5)
+	out.dove = out.ids.has(&"window_dive")
+	_release_all()
+	# Clear of the frame, still in the air: aim at the next building.
+	await _wait_until(func() -> bool: return player.global_position.z < win.global_position.z - 0.7, 2.0)
+	out.clear_pos = player.global_position
+	out.out_airborne = player.global_position.y > 9.5 and not player.is_on_floor()
+	_aim_at(anchor.global_position)
+	await _phys(2)
+	out.target_seen = player.grapple.target == anchor and anchor.is_targeted()
+	if press_grapple:
+		await _tap(&"grapple")
+		await _wait_until(func() -> bool: return out.grappled and player.state != Player.State.GRAPPLE, 4.0)
+	else:
+		# Try Space right after the exit: no coyote jump in mid-air.
+		await _wait_until(func() -> bool: return player.state == Player.State.MOVE, 2.0)
+		var vy_before := player.velocity.y
+		await _tap(&"jump")
+		await _phys(2)
+		out.jumped_after_exit = player.velocity.y > maxf(vy_before, 0.0) + 1.0
+	await _wait_until(func() -> bool: return player.is_on_floor(), 5.0)
+	await _real_until(func() -> bool: return not player.bullet_time.active, 1.0)
+	await _phys(5)
+	out.bt_length = (bt_times[1] - bt_times[0]) / 1_000_000.0
+	out.landed = player.global_position
+	out.on_floor = player.is_on_floor()
+	out.clear = player.sensor.has_clearance(player.global_position, settings.standing_height)
+	player.bullet_time.started.disconnect(on_bt_start)
+	player.bullet_time.ended.disconnect(on_bt_end)
+	player.traversal_started.disconnect(on_traversal)
+	player.traversal_finished.disconnect(on_traversal_end)
+	player.grapple_started.disconnect(on_grapple)
+	player.grapple_finished.disconnect(on_grapple_end)
+	return out
+
+
+## Aims at `anchor`, presses grapple (F key or right mouse) and follows the pull.
+func _grapple_to(anchor: GrappleAnchor, input: String) -> Dictionary:
+	var out := {arrived = false, landed = Vector3.ZERO, on_floor = false, clear = false}
+	_aim_at(anchor.global_position)
+	await _phys(2)
+	var done := [false]
+	var on_finish := func(arrived: bool) -> void:
+		out.arrived = arrived
+		done[0] = true
+	player.grapple_finished.connect(on_finish)
+	if input == "mouse":
+		_mouse_button(MOUSE_BUTTON_RIGHT, true)
+		await process_frame
+		await physics_frame
+		await physics_frame
+		_mouse_button(MOUSE_BUTTON_RIGHT, false)
+	else:
+		await _tap(&"grapple")
+	await _wait_until(func() -> bool: return done[0], 4.0)
+	player.grapple_finished.disconnect(on_finish)
+	await _wait_until(func() -> bool: return player.is_on_floor(), 4.0)
+	await _phys(5)
+	out.landed = player.global_position
+	out.on_floor = player.is_on_floor()
+	out.clear = player.sensor.has_clearance(player.global_position, settings.standing_height)
+	return out
+
+
+## Points the camera (and so the grapple aim) straight at `point`.
+func _aim_at(point: Vector3) -> void:
+	var cam := player.camera
+	var d := point - cam.global_position
+	cam.yaw = atan2(-d.x, -d.z)
+	cam.pitch = clampf(atan2(d.y, Vector2(d.x, d.z).length()), deg_to_rad(cam.min_pitch_degrees), deg_to_rad(cam.max_pitch_degrees))
+
+
+func _mouse_button(index: MouseButton, pressed: bool) -> void:
+	var event := InputEventMouseButton.new()
+	event.button_index = index
+	event.pressed = pressed
+	Input.parse_input_event(event)
+
+
 func test_character() -> void:
 	_section("Vigilante character model (static)")
 	var model := player.get_node_or_null("Visual/Pivot/VigilanteModel") as Node3D
@@ -748,6 +1055,299 @@ func test_character() -> void:
 	await _phys(20)
 	box = _model_aabb(model)
 	_check("after landing: feet back on the ground", absf(box.position.y - player.global_position.y) < 0.03, "%.3f" % box.position.y)
+
+
+func test_idle_animation() -> void:
+	_section("Vigilante idle animation")
+	var lib := load("res://assets/characters/vigilante/animations/vigilante_animations.tres") as AnimationLibrary
+	_check("animation library loads", lib != null)
+	if lib == null:
+		return
+	var idle := lib.get_animation(&"idle")
+	_check("library contains 'idle'", idle != null,
+			str(lib.get_animation_list()))
+	_check("idle is 2-3 s and loops", idle.length >= 2.0 and idle.length <= 3.0 and idle.loop_mode == Animation.LOOP_LINEAR,
+			"%.1f s, loop_mode %d" % [idle.length, idle.loop_mode])
+
+	# A standalone copy of the model, far from the level, with its own player.
+	var model: Node3D = (load("res://assets/characters/vigilante/vigilante_player.glb") as PackedScene).instantiate()
+	model.position = Vector3(200, 0, 200)
+	root.add_child(model)
+	var skel := model.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
+	var tracked: Array[String] = []
+	var bad_paths: Array[String] = []
+	for t in idle.get_track_count():
+		var path := idle.track_get_path(t)
+		var bone := path.get_concatenated_subnames()
+		tracked.append(bone)
+		if String(path.get_concatenated_names()) != "Skeleton3D" or skel.find_bone(bone) < 0:
+			bad_paths.append(str(path))
+	_check("every track targets a real bone on the model's Skeleton3D", bad_paths.is_empty() and tracked.size() > 0, str(bad_paths))
+	# Idle is built on the neutral stance: it must carry every neutral track, and
+	# the pelvis/legs must be held exactly at neutral (no motion there).
+	var neutral := lib.get_animation(&"neutral")
+	var missing := []
+	var legs_moving := []
+	var leg_chain := ["joint_pelvis", "joint_thigh.L", "joint_shin.L", "joint_foot.L", "joint_thigh.R", "joint_shin.R", "joint_foot.R"]
+	for nt in neutral.get_track_count():
+		var it := idle.find_track(neutral.track_get_path(nt), neutral.track_get_type(nt))
+		if it < 0:
+			missing.append(str(neutral.track_get_path(nt)))
+			continue
+		var bone := neutral.track_get_path(nt).get_concatenated_subnames()
+		if leg_chain.has(bone):
+			for k in idle.track_get_key_count(it):
+				if idle.track_get_key_value(it, k) != neutral.track_get_key_value(nt, 0):
+					legs_moving.append(bone)
+					break
+	_check("idle holds the whole neutral stance (every neutral track)", missing.is_empty(), str(missing))
+	_check("pelvis and legs held exactly at neutral", legs_moving.is_empty(), str(legs_moving))
+	var ap := AnimationPlayer.new()
+	model.add_child(ap)
+	ap.root_node = NodePath("..")
+	ap.add_animation_library(&"", lib)
+
+	# Reference: the neutral stance itself.
+	ap.play(&"neutral")
+	ap.seek(0.0, true)
+	await process_frame
+	await process_frame
+	var feet := [skel.find_bone("joint_foot.L"), skel.find_bone("joint_foot.R")]
+	var feet_ref: Array[Transform3D] = [skel.get_bone_global_pose(feet[0]), skel.get_bone_global_pose(feet[1])]
+	var boots := [model.find_child("boot_L", true, false) as Node3D, model.find_child("boot_R", true, false) as Node3D]
+	var boots_ref: Array[Vector3] = [boots[0].global_position, boots[1].global_position]
+	var attachments := model.find_children("*", "BoneAttachment3D", true, false)
+	var watched := {}
+	var neutral_rot := {}
+	for name in tracked:
+		var b := skel.find_bone(name)
+		watched[name] = b
+		neutral_rot[name] = skel.get_bone_pose_rotation(b)
+
+	ap.play(&"idle")
+	var samples := []
+	var feet_drift := 0.0
+	var detach := 0.0
+	var max_angle := 0.0
+	var start_angle := 0.0
+	var spine_angles := []
+	var worst_arm := 0.0
+	var widest_hand := 0.0
+	var hands_clear := true
+	var min_gap := INF
+	var t := 0.0
+	while t < idle.length - 0.001:
+		ap.seek(t, true)
+		await process_frame
+		await process_frame
+		var pose := {}
+		for name in watched:
+			var q := skel.get_bone_pose_rotation(watched[name])
+			pose[name] = q
+			var off := rad_to_deg(q.angle_to(neutral_rot[name]))
+			max_angle = maxf(max_angle, off)
+			if t == 0.0:
+				start_angle = maxf(start_angle, off)
+		spine_angles.append(rad_to_deg((pose[&"joint_spine"] as Quaternion).angle_to(neutral_rot[&"joint_spine"])))
+		samples.append(pose)
+		worst_arm = maxf(worst_arm, maxf(_arm_angle(skel, ".L", false), _arm_angle(skel, ".R", false)))
+		for side in ["L", "R"]:
+			var hand_box := _mesh_box(model, "hand_" + side)
+			widest_hand = maxf(widest_hand, absf(skel.get_bone_global_pose(skel.find_bone("joint_hand." + side)).origin.x))
+			for body in ["thigh_" + side, "pelvis", "belt"]:
+				var body_box := _mesh_box(model, body)
+				hands_clear = hands_clear and hand_box.has_volume() and not hand_box.intersects(body_box)
+				min_gap = minf(min_gap, hand_box.position.x - body_box.end.x if side == "L" else body_box.position.x - hand_box.end.x)
+		for i in 2:
+			feet_drift = maxf(feet_drift, skel.get_bone_global_pose(feet[i]).origin.distance_to(feet_ref[i].origin))
+			feet_drift = maxf(feet_drift, boots[i].global_position.distance_to(boots_ref[i]))
+		for a in attachments:
+			var ba := a as BoneAttachment3D
+			var expected := skel.global_transform * skel.get_bone_global_pose(ba.bone_idx)
+			detach = maxf(detach, ba.global_transform.origin.distance_to(expected.origin))
+		t += 0.1
+	_check("idle starts from the neutral stance (t=0 within 1.5 deg)", start_angle < 1.5, "%.2f deg" % start_angle)
+	_check("skeleton actually moves (spine breathes)", spine_angles.max() > 0.3, "spine up to %.2f deg" % spine_angles.max())
+	_check("motion stays subtle (every bone within 3 deg of neutral)", max_angle > 0.3 and max_angle < 3.0, "max %.2f deg" % max_angle)
+	_check("never returns toward the A-pose (arms within 12 deg of vertical all cycle)", worst_arm < 12.0,
+			"worst %.1f deg (A-pose 41.3)" % worst_arm)
+	_check("arms stay beside the body all cycle", widest_hand < 0.30, "hand x up to %.3f m" % widest_hand)
+	_check("hands clear of thighs, pelvis and belt all cycle", hands_clear, "closest sideways gap %.3f m" % min_gap)
+	# Seamless loop: the jump from the last sample back to the first is no bigger than a normal step.
+	var biggest_step := 0.0
+	for i in samples.size():
+		var a: Dictionary = samples[i]
+		var b: Dictionary = samples[(i + 1) % samples.size()]
+		for name in a:
+			biggest_step = maxf(biggest_step, rad_to_deg((a[name] as Quaternion).angle_to(b[name])))
+	var wrap_step := 0.0
+	for name in samples[0]:
+		wrap_step = maxf(wrap_step, rad_to_deg((samples[-1][name] as Quaternion).angle_to(samples[0][name])))
+	_check("loops seamlessly (end -> start step no bigger than any other)", wrap_step <= biggest_step + 0.001,
+			"wrap %.3f deg, largest step %.3f deg" % [wrap_step, biggest_step])
+	_check("feet stay planted (vs neutral)", feet_drift < 0.0005, "max drift %.5f m" % feet_drift)
+	_check("no body part detaches from its bone", detach < 0.0005, "max offset %.5f m across %d attachments" % [detach, attachments.size()])
+	var pos_before := ap.current_animation_position
+	ap.play(&"idle")
+	await _real_wait(0.5)
+	_check("plays in real time and keeps looping", ap.is_playing() and ap.current_animation == &"idle")
+	ap.seek(idle.length + 0.4, true)
+	_check("playback wraps past the end (loop)", absf(ap.current_animation_position - 0.4) < 0.05 and ap.is_playing(),
+			"position %.2f (from %.2f)" % [ap.current_animation_position, pos_before])
+	model.queue_free()
+
+	# The comparison preview: neutral, idle frozen at start / inhale / exhale,
+	# and idle playing live.
+	var preview: Node = load("res://scenes/test/vigilante_idle_preview.tscn").instantiate()
+	preview.set("position", Vector3(300, 0, 300))
+	root.add_child(preview)
+	await _frames(5)
+	var get_player := func(n: String) -> AnimationPlayer: return preview.get_node_or_null(n) as AnimationPlayer
+	var p_neutral: AnimationPlayer = get_player.call("NeutralPlayer")
+	var p_live: AnimationPlayer = get_player.call("IdleLivePlayer")
+	var frozen_ok := true
+	for entry in [["IdleStartPlayer", 0.0], ["IdleInhalePlayer", 0.75], ["IdleExhalePlayer", 2.25]]:
+		var p: AnimationPlayer = get_player.call(entry[0])
+		# A paused player reports current_animation as ""; the clip is in assigned_animation.
+		frozen_ok = frozen_ok and p != null and p.assigned_animation == &"idle" and not p.is_playing() \
+				and absf(p.current_animation_position - entry[1]) < 0.01
+	_check("idle preview: neutral + idle start / inhale / exhale frozen + idle live",
+			p_neutral != null and p_neutral.current_animation == &"neutral" and frozen_ok
+			and p_live != null and p_live.is_playing() and p_live.current_animation == &"idle")
+	preview.queue_free()
+	await _frames(2)
+	_check("player model is not animated (idle not connected to gameplay)",
+			player.find_children("*", "AnimationPlayer", true, false).is_empty())
+
+
+func test_neutral_stance() -> void:
+	_section("Vigilante neutral stance")
+	var lib := load("res://assets/characters/vigilante/animations/vigilante_animations.tres") as AnimationLibrary
+	var neutral := lib.get_animation(&"neutral") if lib else null
+	_check("neutral animation exists and loads", neutral != null and ResourceLoader.exists("res://assets/characters/vigilante/animations/neutral.tres"))
+	if neutral == null:
+		return
+	_check("library contains both neutral and idle", lib.has_animation(&"neutral") and lib.has_animation(&"idle")
+			and lib.get_animation_list().size() == 2, str(lib.get_animation_list()))
+	var static_pose := true
+	for t in neutral.get_track_count():
+		static_pose = static_pose and neutral.track_get_key_count(t) == 1
+	_check("static pose in a looping clip (loop-safe)", static_pose and neutral.loop_mode == Animation.LOOP_LINEAR,
+			"%d tracks, %.1f s" % [neutral.get_track_count(), neutral.length])
+
+	var model: Node3D = (load("res://assets/characters/vigilante/vigilante_player.glb") as PackedScene).instantiate()
+	model.position = Vector3(220, 0, 220)
+	root.add_child(model)
+	var skel := model.find_children("*", "Skeleton3D", true, false)[0] as Skeleton3D
+	var bad := []
+	for t in neutral.get_track_count():
+		var path := neutral.track_get_path(t)
+		if String(path.get_concatenated_names()) != "Skeleton3D" or skel.find_bone(path.get_concatenated_subnames()) < 0:
+			bad.append(str(path))
+	_check("every track targets a real bone", bad.is_empty(), str(bad))
+	var rest_pose := func(bone: String) -> Transform3D: return skel.get_bone_global_rest(skel.find_bone(bone))
+	var boots := [model.find_child("boot_L", true, false) as Node3D, model.find_child("boot_R", true, false) as Node3D]
+	await process_frame
+	var boots_rest: Array[Vector3] = [boots[0].global_position, boots[1].global_position]
+	_check("rest pose is still the authored A-pose", absf(_arm_angle(skel, ".L", true) - 41.25) < 1.0,
+			"upper arm %.1f deg from vertical at rest" % _arm_angle(skel, ".L", true))
+
+	var ap := AnimationPlayer.new()
+	model.add_child(ap)
+	ap.root_node = NodePath("..")
+	ap.add_animation_library(&"", lib)
+	ap.play(&"neutral")
+	ap.seek(0.0, true)
+	await process_frame
+	await process_frame
+	var g := func(bone: String) -> Transform3D: return skel.get_bone_global_pose(skel.find_bone(bone))
+	var arm_l := _arm_angle(skel, ".L", false)
+	var arm_r := _arm_angle(skel, ".R", false)
+	_check("arms out of the A-pose (hanging within 12 deg of vertical)", arm_l < 12.0 and arm_r < 12.0,
+			"L %.1f / R %.1f deg (rest 41.3)" % [arm_l, arm_r])
+	var hand_l: Vector3 = g.call("joint_hand.L").origin
+	var hand_r: Vector3 = g.call("joint_hand.R").origin
+	var rest_hand_l: Vector3 = rest_pose.call("joint_hand.L").origin
+	_check("hands brought in beside the hips", absf(hand_l.x) < 0.30 and absf(hand_r.x) < 0.30 and absf(rest_hand_l.x) - absf(hand_l.x) > 0.2,
+			"hand x %.2f / %.2f (rest %.2f)" % [hand_l.x, hand_r.x, rest_hand_l.x])
+	_check("hands hang at hip / upper-thigh height", hand_l.y > 0.7 and hand_l.y < 0.95, "hand joint y %.2f" % hand_l.y)
+	var elbow := rad_to_deg((g.call("joint_forearm.L").origin - g.call("joint_upperarm.L").origin).angle_to(
+			g.call("joint_hand.L").origin - g.call("joint_forearm.L").origin))
+	_check("elbows relaxed, not bent hard", elbow > 5.0 and elbow < 25.0, "%.1f deg" % elbow)
+	var knee := rad_to_deg((g.call("joint_shin.L").origin - g.call("joint_thigh.L").origin).angle_to(
+			g.call("joint_foot.L").origin - g.call("joint_shin.L").origin))
+	_check("knees soft, not locked or deep", knee > 5.0 and knee < 20.0, "%.1f deg" % knee)
+
+	# Hands stay on the arms and clear of the legs and hips.
+	var hand_attached := hand_l.distance_to(g.call("joint_forearm.L").origin)
+	_check("hands remain attached to the forearms", absf(hand_attached - 0.262) < 0.001, "%.4f m" % hand_attached)
+	var clear := true
+	var boxes_found := true
+	var gap := INF
+	for side in ["L", "R"]:
+		var hand_box := _mesh_box(model, "hand_" + side)
+		boxes_found = boxes_found and hand_box.has_volume()
+		for body in ["thigh_" + side, "pelvis", "belt"]:
+			var body_box := _mesh_box(model, body)
+			boxes_found = boxes_found and body_box.has_volume()
+			clear = clear and not hand_box.intersects(body_box)
+			# Sideways clearance between facing edges (+X is the character's left).
+			var edge_gap := hand_box.position.x - body_box.end.x if side == "L" else body_box.position.x - hand_box.end.x
+			gap = minf(gap, edge_gap)
+	_check("hands clear of thighs, pelvis and belt", boxes_found and clear, "found=%s, closest sideways gap %.3f m" % [boxes_found, gap])
+
+	# Feet planted exactly, flat as at rest.
+	var foot_drift := 0.0
+	var foot_turn := 0.0
+	for side in [".L", ".R"]:
+		var posed: Transform3D = g.call("joint_foot" + side)
+		var rest: Transform3D = rest_pose.call("joint_foot" + side)
+		foot_drift = maxf(foot_drift, posed.origin.distance_to(rest.origin))
+		foot_turn = maxf(foot_turn, rad_to_deg(posed.basis.get_rotation_quaternion().angle_to(rest.basis.get_rotation_quaternion())))
+	for i in 2:
+		foot_drift = maxf(foot_drift, boots[i].global_position.distance_to(boots_rest[i]))
+	_check("feet stay planted and flat", foot_drift < 0.001 and foot_turn < 0.5, "drift %.4f m, turn %.2f deg" % [foot_drift, foot_turn])
+	var detach := 0.0
+	for a in model.find_children("*", "BoneAttachment3D", true, false):
+		var ba := a as BoneAttachment3D
+		detach = maxf(detach, ba.global_position.distance_to((skel.global_transform * skel.get_bone_global_pose(ba.bone_idx)).origin))
+	_check("no body parts detach", detach < 0.0005, "max %.5f m" % detach)
+	var head_up := (g.call("joint_head").basis.y as Vector3).normalized()
+	_check("head upright, looking forward", rad_to_deg(head_up.angle_to(Vector3.UP)) < 3.0, "%.1f deg off vertical" % rad_to_deg(head_up.angle_to(Vector3.UP)))
+	ap.seek(neutral.length * 0.99, true)
+	await process_frame
+	await process_frame
+	_check("pose identical across the loop", (g.call("joint_hand.L").origin as Vector3).distance_to(hand_l) < 0.0001)
+	model.queue_free()
+
+	var preview: Node = load("res://scenes/test/vigilante_neutral_preview.tscn").instantiate()
+	preview.set("position", Vector3(320, 0, 320))
+	root.add_child(preview)
+	await _frames(5)
+	var players := preview.find_children("*", "AnimationPlayer", true, false)
+	_check("neutral preview shows 3 views playing neutral", players.size() == 3
+			and players.all(func(p: AnimationPlayer) -> bool: return p.is_playing() and p.current_animation == &"neutral"))
+	preview.queue_free()
+	await _frames(2)
+	_check("still not connected to the player", player.find_children("*", "AnimationPlayer", true, false).is_empty())
+
+
+## Upper arm angle from straight down, in degrees (rest or current pose).
+func _arm_angle(skel: Skeleton3D, side: String, rest: bool) -> float:
+	var get := func(bone: String) -> Vector3:
+		var i := skel.find_bone(bone + side)
+		return (skel.get_bone_global_rest(i) if rest else skel.get_bone_global_pose(i)).origin
+	return rad_to_deg((get.call("joint_forearm") - get.call("joint_upperarm")).angle_to(Vector3.DOWN))
+
+
+## World AABB of the named MeshInstance3D (its BoneAttachment3D parent shares
+## the name, so search meshes only). Empty AABB if missing.
+func _mesh_box(model: Node3D, name: String) -> AABB:
+	var found := model.find_children(name, "MeshInstance3D", true, false)
+	if found.is_empty():
+		return AABB()
+	var mi := found[0] as MeshInstance3D
+	return mi.global_transform * mi.get_aabb()
 
 
 func _model_aabb(model: Node3D) -> AABB:

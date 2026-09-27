@@ -1,0 +1,68 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://assets/characters/vigilante/vigilante_player.glb" id="1_model"]
+[ext_resource type="AnimationLibrary" path="res://assets/characters/vigilante/animations/vigilante_animations.tres" id="2_lib"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
+sky_top_color = Color(0.36, 0.5, 0.72, 1)
+sky_horizon_color = Color(0.7, 0.74, 0.8, 1)
+ground_horizon_color = Color(0.7, 0.74, 0.8, 1)
+
+[sub_resource type="Sky" id="Sky_sky"]
+sky_material = SubResource("ProceduralSkyMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_env"]
+background_mode = 2
+sky = SubResource("Sky_sky")
+ambient_light_source = 3
+ambient_light_energy = 0.9
+tonemap_mode = 2
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_floor"]
+size = Vector2(8, 5)
+
+[node name="VigilanteNeutralPreview" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_env")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.819152, -0.346189, 0.457338, 0, 0.797272, 0.603621, -0.573576, -0.494403, 0.653144, 0, 4, 0)
+shadow_enabled = true
+
+[node name="Floor" type="MeshInstance3D" parent="."]
+mesh = SubResource("PlaneMesh_floor")
+
+[node name="Front" parent="." instance=ExtResource("1_model")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.4, 0, 0)
+
+[node name="FrontPlayer" type="AnimationPlayer" parent="."]
+root_node = NodePath("../Front")
+libraries = {
+&"": ExtResource("2_lib")
+}
+autoplay = &"neutral"
+
+[node name="ThreeQuarter" parent="." instance=ExtResource("1_model")]
+transform = Transform3D(0.819152, 0, -0.573576, 0, 1, 0, 0.573576, 0, 0.819152, 0, 0, 0)
+
+[node name="ThreeQuarterPlayer" type="AnimationPlayer" parent="."]
+root_node = NodePath("../ThreeQuarter")
+libraries = {
+&"": ExtResource("2_lib")
+}
+autoplay = &"neutral"
+
+[node name="Side" parent="." instance=ExtResource("1_model")]
+transform = Transform3D(-4.37114e-08, 0, -1, 0, 1, 0, 1, 0, -4.37114e-08, 1.4, 0, 0)
+
+[node name="SidePlayer" type="AnimationPlayer" parent="."]
+root_node = NodePath("../Side")
+libraries = {
+&"": ExtResource("2_lib")
+}
+autoplay = &"neutral"
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.994522, 0.104528, 0, -0.104528, 0.994522, 0, 1.25, 5.2)
+fov = 38.0

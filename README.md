@@ -17,7 +17,8 @@ The project is at an early stage. The current build is a **movement foundation**
 - Third-person player controller (walk, sprint, jump, crouch, air control)
 - Third-person orbit camera with collision avoidance
 - Parkour: vaults, mantles, ledge grab / hang / shimmy / climb-up
-- Window traversal (a deliberate dive through an opening, in either direction)
+- Window traversal (a deliberate dive through an opening, in either direction, on foot or mid-jump)
+- Grapple foundation: aim at an anchor point and get pulled to it, on foot or in the air
 - Timed bullet-time ability
 - The Vigilante character model in the player scene (static for now)
 - Greybox movement test level
@@ -26,13 +27,13 @@ The project is at an early stage. The current build is a **movement foundation**
 **Not implemented yet**
 
 - Combat, weapons and enemies
-- Grappling / building-to-building traversal
+- Grapple swinging, rope physics and grapple combat (the grapple is a straight pull to anchor points only)
 - Character rigging and animations (the model is currently a static, unrigged mesh)
 - Story, missions, progression, audio
 
 ## Core Gameplay
 
-The current build is a movement sandbox. You control the Vigilante in a small test level built to exercise every movement feature: low and waist-high obstacles, climbable walls, a crouch tunnel, ramps, platform gaps, a building with windows and a short rooftop run.
+The current build is a movement sandbox. You control the Vigilante in a small test level built to exercise every movement feature: low and waist-high obstacles, climbable walls, a crouch tunnel, ramps, platform gaps, a building with windows, a short rooftop run, and a grapple test area: a tower with a rooftop window facing a gap, and a second tower across it to grapple to.
 
 ## Movement / Traversal
 
@@ -58,8 +59,19 @@ A timed slow-motion ability.
 - **Dive windows:** line up with the opening within about 3 m and press **E** to dive through. A contextual **[E] DIVE THROUGH** prompt appears only when the dive is available.
 - Works from **either side**: outside to inside and inside to outside. The direction comes from the side the player is on.
 - No run-up is needed; the dive always runs at sprint pace and exits with momentum.
+- It also works **mid-jump**: jump toward the window and press E in the air to dive straight through.
+- Diving out of a **high window** with nothing to land on hands the momentum over to a normal fall, ready for a grapple.
 - Running or jumping into a dive window does nothing on its own; it is always a deliberate button press.
 - **Plain windows** behave like regular obstacles: sprinting into one vaults through it, and E / Jump climbs through.
+
+## Grapple
+
+A minimal grapple foundation for building-to-building traversal.
+
+- **Anchor points** are placed in the level as small glowing markers. The one you are aiming at (camera centre, within 35 m, with line of sight) brightens.
+- Press **Right mouse / F** to fire: the player is pulled straight to the anchor and hops onto the ledge it sits on. Works on foot or in the air, including straight out of a window dive. Press again to let go.
+- It never fires on its own. With no valid target, the press does nothing.
+- The core loop it proves: **jump → E window dive → bullet time → grapple → next building**, repeatable in the grapple test area (walk up the ramp beside the first tower; the second tower has an anchor back).
 
 ## Controls
 
@@ -70,6 +82,7 @@ A timed slow-motion ability.
 | Space | Jump · bullet time when airborne over a drop |
 | C / Ctrl | Crouch (hold) |
 | E | Dive through a window · vault / climb elsewhere |
+| Right mouse / F | Grapple to the anchor you are aiming at (press again to let go) |
 | While hanging | Space / E climb up · A / D shimmy · C drop |
 | Mouse | Orbit camera |
 | Esc / left click | Release / recapture mouse |
@@ -94,9 +107,9 @@ scenes/
   player/                 Player scene
   test/                   Greybox movement test level
 scripts/
-  player/                 Controller, camera, visuals, bullet time, prompt
+  player/                 Controller, camera, visuals, bullet time, grapple, prompt
   movement/               Locomotion math, tuning settings, scripted motions
-  parkour/                Parkour sensor, parkour moves, traversal windows
+  parkour/                Parkour sensor, parkour moves, traversal windows, grapple anchors
   level/                  Greybox block and grid shader
   debug/                  On-screen debug HUD
 tests/
@@ -122,6 +135,6 @@ Add `-- --shots=<folder>` (without `--headless`) to also save screenshots.
 Planned, not yet implemented:
 
 - Rigging and animating the Vigilante character (idle, walk, sprint, jump, fall, land, crouch)
-- Grappling and building-to-building traversal, including diving out of tall windows in bullet time
+- Building on the grapple: swinging, grapple combat and a real city to traverse
 - Combat
 - A playable environment beyond the movement test level

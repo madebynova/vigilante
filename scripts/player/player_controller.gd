@@ -1,7 +1,7 @@
 class_name Player
 extends CharacterBody3D
 ## Third-person player controller: locomotion, jumping, crouching and the
-## parkour entry points (vault, ledge grab/climb, window traversal).
+## parkour entry points (vault, ledge grab/climb, window traversal, grapple).
 ##
 ## Responsibilities are split so each piece can grow on its own:
 ##   Locomotion        - velocity math (walk, sprint, air control, gravity)
@@ -10,15 +10,22 @@ extends CharacterBody3D
 ##   TraversalWindow   - window openings and their motions
 ##   InteractionPrompt - on-screen contextual prompt ("[E] DIVE THROUGH")
 ##   BulletTime        - timed slow-time ability (Space)
+##   Grapple           - grapple targeting (camera aim) and rope
 ##   PlayerCamera      - orbit camera and mouse capture
 ##   PlayerVisual      - character model + light procedural motion
 
-enum State { MOVE, TRAVERSAL, LEDGE_HANG, WINDOW_APPROACH }
+enum State { MOVE, TRAVERSAL, LEDGE_HANG, WINDOW_APPROACH, GRAPPLE }
+
+## How long a grapple press is remembered (game seconds), so pressing a hair
+## before the grapple becomes possible (e.g. mid-dive) still counts.
+const GRAPPLE_BUFFER := 0.2
 
 signal state_changed(new_state: State)
 signal traversal_started(id: StringName)
 signal traversal_finished(id: StringName)
 signal landed(impact_speed: float)
+signal grapple_started(anchor: GrappleAnchor)
+signal grapple_finished(arrived: bool)
 
 @export var settings: MovementSettings
 
@@ -70,8 +77,17 @@ var _approach_start := Vector3.ZERO
 var _approach_target := Vector3.ZERO
 var _approach_entry_speed := 0.0
 var _approach_time := 0.0
+## Window being dived through (and the side the dive started on), so a grapple
+## can cut the dive short once the player is clear of the frame.
+var _dive_window: TraversalWindow
+var _dive_side := 0.0
+var _grapple_buffer := 0.0
+var _grapple_time := 0.0
+var _grapple_best := INF
+var _grapple_stall := 0.0
 
 @onready var camera: PlayerCamera = $CameraRig
+@onready var grapple: Grapple = $Grapple
 @onready var sensor: ParkourSensor = $ParkourSensor
 @onready var prompt: InteractionPrompt = $PromptLayer/InteractionPrompt
 @onready var bullet_time: BulletTime = $BulletTime
@@ -95,6 +111,7 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	_read_input()
 	_ledge_cooldown = maxf(_ledge_cooldown - delta, 0.0)
+	_update_grapple_target()
 	match state:
 		State.MOVE:
 			_process_move(delta)
@@ -104,7 +121,10 @@ func _physics_process(delta: float) -> void:
 			_process_hang(delta)
 		State.WINDOW_APPROACH:
 			_process_window_approach(delta)
+		State.GRAPPLE:
+			_process_grapple(delta)
 	_jump_buffer = maxf(_jump_buffer - delta, 0.0)
+	_grapple_buffer = maxf(_grapple_buffer - delta, 0.0)
 	_update_window_hint()
 
 	var sprint_amount := clampf((horizontal_speed() - settings.walk_speed)
@@ -125,9 +145,12 @@ func horizontal_speed() -> float:
 ## Moves the player to `xform` and clears any in-progress action.
 func teleport(xform: Transform3D) -> void:
 	bullet_time.reset()
+	grapple.detach()
 	current_motion = null
 	current_ledge = null
 	_approach_window = null
+	_dive_window = null
+	_grapple_buffer = 0.0
 	_recovery = 0.0
 	velocity = Vector3.ZERO
 	global_transform = xform
@@ -168,6 +191,8 @@ func _read_input() -> void:
 	_jump_pressed = Input.is_action_just_pressed(&"jump")
 	if _jump_pressed:
 		_jump_buffer = settings.jump_buffer_time
+	if Input.is_action_just_pressed(&"grapple"):
+		_grapple_buffer = GRAPPLE_BUFFER
 	if Input.is_action_just_pressed(&"debug_respawn"):
 		respawn()
 
@@ -181,7 +206,10 @@ func _process_move(delta: float) -> void:
 	_update_crouch()
 	is_sprinting = _sprint_held and not is_crouching and _recovery <= 0.0 and _input_dir.length() > 0.2
 
-	# Parkour takes priority over plain movement.
+	# Deliberate actions (grapple, E at a window) and parkour take priority
+	# over plain movement.
+	if _try_grapple():
+		return
 	if on_floor:
 		if _try_window():
 			return
@@ -189,7 +217,7 @@ func _process_move(delta: float) -> void:
 			return
 		if is_sprinting and _try_vault(true):
 			return
-	elif _try_ledge():
+	elif _try_window() or _try_ledge(): # in the air only dive windows (E) apply
 		return
 	elif _jump_pressed and _coyote <= 0.0 and _try_air_bullet_time():
 		_jump_buffer = 0.0 # the press was used for slow time, not a buffered jump
@@ -364,28 +392,50 @@ func _process_traversal(delta: float) -> void:
 	var p := motion.progress()
 	visual.traversal_pitch = motion.body_pitch * sin(PI * p)
 	visual.tumble = -TAU * motion.tumble_turns * smoothstep(0.5, 1.0, p)
+	# Grapple out of a window dive (the bullet-time moment) once clear of it.
+	if motion.id == &"window_dive" and _grapple_buffer > 0.0 and grapple.target != null \
+			and _clear_of_dive_window():
+		var anchor := grapple.target
+		_end_motion(false)
+		_start_grapple(anchor)
+		return
 	if motion.is_finished():
-		_finish_motion()
+		_end_motion(true)
 
 
-func _finish_motion() -> void:
+## Ends the current traversal. `completed` = played to the end (hand over its
+## exit velocity, land unless it ends in mid-air); otherwise it was cut short
+## in mid-air and keeps its current velocity.
+func _end_motion(completed: bool) -> void:
 	var motion := current_motion
 	current_motion = null
+	_dive_window = null
 	visual.tucked = false
 	visual.traversal_pitch = 0.0
 	visual.tumble = 0.0
+	if not completed:
+		_coyote = 0.0
+		_was_on_floor = false
+		_set_state(State.MOVE)
+		traversal_finished.emit(motion.id)
+		return
 	velocity = motion.exit_velocity
 	_recovery = motion.recovery_time
-	_coyote = settings.coyote_time
 	_ledge_cooldown = maxf(_ledge_cooldown, 0.2)
-	_was_on_floor = true
 	if motion.end_crouched:
 		_set_crouched(true)
 	if motion.recovery_time > 0.0:
 		visual.stumble()
-	if motion.landing_shake > 0.0:
-		camera.add_shake(motion.landing_shake)
-	visual.on_landed(4.0)
+	if motion.ends_airborne:
+		# Out into the open air: no landing, no coyote jump - just fall.
+		_coyote = 0.0
+		_was_on_floor = false
+	else:
+		_coyote = settings.coyote_time
+		_was_on_floor = true
+		if motion.landing_shake > 0.0:
+			camera.add_shake(motion.landing_shake)
+		visual.on_landed(4.0)
 	_set_state(State.MOVE)
 	traversal_finished.emit(motion.id)
 
@@ -398,15 +448,21 @@ func _try_window() -> bool:
 	var hvel := Vector3(velocity.x, 0.0, velocity.z)
 	var speed := hvel.length()
 	var pos := global_position
+	var airborne := not is_on_floor()
 	for window in _windows:
 		var dist := window.distance_to_wall(pos)
 		if window.dive_window:
 			# E is the only way through: running or jumping into it does nothing.
 			# Works from either side: the side the player is on decides the way.
 			if _can_dive(window):
-				_begin_window_dive(window, maxf(speed, settings.sprint_speed))
+				if airborne:
+					_start_window_dive(window, maxf(speed, settings.sprint_speed)) # already in the air: dive now
+				else:
+					_begin_window_dive(window, maxf(speed, settings.sprint_speed))
 				return true
 			continue
+		if airborne:
+			continue # plain windows keep their on-foot behaviour only
 		var sprinting_at := speed >= window.auto_speed and window.is_lined_up(pos, hvel)
 		if sprinting_at and dist <= window.takeoff_distance + 0.2:
 			_start_motion(window.build_motion(pos, speed, TraversalWindow.Style.VAULT))
@@ -426,6 +482,7 @@ func _try_window() -> bool:
 ## prompt, so the prompt only shows when E will actually work).
 func _can_dive_position(window: TraversalWindow) -> bool:
 	return window.dive_window and window.distance_to_wall(global_position) <= window.dive_distance \
+			and window.feet_in_reach(global_position) \
 			and window.is_lined_up(global_position, _move_or_facing_dir())
 
 
@@ -436,7 +493,7 @@ func _can_dive(window: TraversalWindow) -> bool:
 ## Shows "[E] DIVE THROUGH" exactly when pressing E would start the dive.
 func _update_window_hint() -> void:
 	var show := false
-	if state == State.MOVE and is_on_floor() and not is_crouching:
+	if state == State.MOVE and not is_crouching: # on foot or mid-jump
 		for window in _windows:
 			if _can_dive_position(window):
 				show = true
@@ -466,11 +523,8 @@ func _process_window_approach(delta: float) -> void:
 	to_target.y = 0.0
 	if to_target.length() <= speed * delta or _approach_time > 1.5:
 		var window := _approach_window
-		# Slow time starts at takeoff so its duration covers the dive itself.
-		if window_dive_slow_time:
-			bullet_time.activate()
 		_approach_window = null
-		_start_motion(window.build_motion(global_position, _approach_entry_speed, TraversalWindow.Style.DIVE))
+		_start_window_dive(window, _approach_entry_speed)
 		return
 	var hvel := to_target.normalized() * speed
 	velocity.x = hvel.x
@@ -478,6 +532,112 @@ func _process_window_approach(delta: float) -> void:
 	velocity.y = 0.0 if is_on_floor() else Locomotion.apply_gravity(velocity.y, false, settings, delta)
 	_face(_approach_window.through_direction(global_position), 16.0, delta)
 	move_and_slide()
+
+
+## Dives through `window` from where the player is now. Slow time starts here,
+## at takeoff, so its short duration covers the dive itself.
+func _start_window_dive(window: TraversalWindow, speed: float) -> void:
+	_traverse_pressed = false
+	if window_dive_slow_time:
+		bullet_time.activate()
+	_dive_window = window
+	_dive_side = window.side_of(global_position)
+	_start_motion(window.build_motion(global_position, speed, TraversalWindow.Style.DIVE))
+
+
+## True once a window dive has carried the player fully out of the frame.
+func _clear_of_dive_window() -> bool:
+	return _dive_window != null and is_instance_valid(_dive_window) \
+			and _dive_window.side_of(global_position) != _dive_side \
+			and _dive_window.distance_to_wall(global_position) > _dive_window.wall_thickness * 0.5 + _shape.radius + 0.1
+
+
+# --- Grapple -----------------------------------------------------------------
+
+## Keeps the highlighted anchor in sync with where the camera aims.
+func _update_grapple_target() -> void:
+	match state:
+		State.MOVE, State.TRAVERSAL:
+			grapple.update_target(global_position + Vector3.UP * 1.2, camera.camera)
+		State.GRAPPLE:
+			pass # keep the attached anchor highlighted
+		_:
+			grapple.clear_target()
+
+
+## Grapple press with a valid target: start the pull (on the ground or in the air).
+func _try_grapple() -> bool:
+	if _grapple_buffer <= 0.0 or grapple.target == null:
+		return false
+	_start_grapple(grapple.target)
+	return true
+
+
+func _start_grapple(anchor: GrappleAnchor) -> void:
+	_grapple_buffer = 0.0
+	if is_crouching:
+		_try_stand()
+	grapple.attach(anchor)
+	_grapple_time = 0.0
+	_grapple_best = global_position.distance_to(anchor.global_position)
+	_grapple_stall = 0.0
+	current_ledge = null
+	last_action = &"grapple"
+	_set_state(State.GRAPPLE)
+	grapple_started.emit(anchor)
+
+
+## Pulled straight toward the anchor. Ends on arrival, when blocked, on timeout,
+## if the anchor goes away, or when grapple is pressed again (let go).
+func _process_grapple(delta: float) -> void:
+	var anchor := grapple.attached
+	if anchor == null or not is_instance_valid(anchor) or not anchor.enabled:
+		_end_grapple(false)
+		return
+	if _grapple_buffer > 0.0:
+		_grapple_buffer = 0.0 # this press lets go; don't re-grapple with it
+		_end_grapple(false)
+		return
+	_grapple_time += delta
+	var to_target := anchor.global_position - global_position
+	var distance := to_target.length()
+	# Arrive once close AND up level with the anchor, so a steep pull from below
+	# carries the player over the ledge before the hop (never under its lip).
+	var close := distance <= maxf(grapple.arrive_distance, velocity.length() * delta)
+	if (close and to_target.y <= 0.25) or distance <= 0.3:
+		_end_grapple(true)
+		return
+	velocity = velocity.move_toward(to_target / distance * grapple.pull_speed, grapple.pull_acceleration * delta)
+	var flat := Vector3(to_target.x, 0.0, to_target.z)
+	if flat.length() > 0.3:
+		_face(flat, 14.0, delta)
+	move_and_slide()
+	if distance < _grapple_best - 0.05:
+		_grapple_best = distance
+		_grapple_stall = 0.0
+	else:
+		_grapple_stall += delta
+	if _grapple_stall > 0.3 or _grapple_time > grapple.max_pull_time:
+		_end_grapple(false) # blocked by geometry or taking too long
+
+
+func _end_grapple(arrived: bool) -> void:
+	var pull := velocity
+	grapple.detach()
+	if arrived:
+		# Hop up and over the ledge the anchor sits on.
+		var flat := Vector3(pull.x, 0.0, pull.z)
+		if flat.length() < 0.1:
+			flat = -global_basis.z
+		velocity = flat.normalized() * grapple.hop_forward_speed + Vector3.UP * grapple.hop_up_speed
+		last_action = &"grapple_arrive"
+	else:
+		last_action = &"grapple_release"
+	_coyote = 0.0
+	_was_on_floor = false
+	_ledge_cooldown = maxf(_ledge_cooldown, 0.25)
+	_set_state(State.MOVE)
+	grapple_finished.emit(arrived)
 
 
 ## Space in the air starts slow time when it's ready and there's a real drop

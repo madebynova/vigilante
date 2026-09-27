@@ -8,6 +8,7 @@
 [ext_resource type="Script" path="res://scripts/player/interaction_prompt.gd" id="7_prompt"]
 [ext_resource type="Script" path="res://scripts/player/bullet_time.gd" id="8_bullet"]
 [ext_resource type="PackedScene" path="res://assets/characters/vigilante/vigilante_player.glb" id="9_model"]
+[ext_resource type="Script" path="res://scripts/player/grapple.gd" id="10_grapple"]
 
 [sub_resource type="Resource" id="Resource_settings"]
 script = ExtResource("2_settings")
@@ -54,6 +55,9 @@ near = 0.08
 
 [node name="BulletTime" type="Node" parent="."]
 script = ExtResource("8_bullet")
+
+[node name="Grapple" type="Node3D" parent="."]
+script = ExtResource("10_grapple")
 
 [node name="PromptLayer" type="CanvasLayer" parent="."]
 

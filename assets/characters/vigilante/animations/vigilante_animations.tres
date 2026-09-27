@@ -1,0 +1,10 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://assets/characters/vigilante/animations/idle.tres" id="1_a823x"]
+[ext_resource type="Animation" path="res://assets/characters/vigilante/animations/neutral.tres" id="2_a2six"]
+
+[resource]
+_data = {
+&"idle": ExtResource("1_a823x"),
+&"neutral": ExtResource("2_a2six")
+}
