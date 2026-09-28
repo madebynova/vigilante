@@ -13,6 +13,9 @@ extends Node3D
 ## The arrow's nock starts this far in front of the hand, clear of the body.
 const NOCK_CLEARANCE := 0.4
 
+## Why the anchor under the aim can't be grappled right now (reticle readout).
+enum Block { NONE, TOO_FAR, TOO_CLOSE, BLOCKED }
+
 @export_flags_3d_physics var collision_mask := 1
 @export var max_range := 35.0
 ## Anchors closer than this are ignored (you are basically there already).
@@ -39,8 +42,27 @@ const NOCK_CLEARANCE := 0.4
 @export var hop_up_speed := 4.5
 @export var hop_forward_speed := 5.5
 
+@export_group("Release")
+## Letting go mid-pull keeps the pull's direction but at most this much speed
+## across (m/s, a fast run): the cable's speed isn't the player's own...
+@export var release_speed := 12.5
+## ...and at most this much upward (m/s, about a jump's rise), so letting go
+## by a wall or under a ledge is never a launch. Falling speed is kept.
+@export var release_rise_speed := 8.0
+
+@export_group("Aim readout")
+## An anchor this close to the aim (degrees) that can't be grappled is shown
+## as blocked on the reticle...
+@export var readout_cone_degrees := 6.0
+## ...if it is within this range (m).
+@export var readout_range := 70.0
+
 ## Anchor the player would grapple to right now (highlighted), or null.
 var target: GrappleAnchor
+## Without a target: the anchor right under the aim that can't be grappled
+## (null if none) and why (see Block). Drives the reticle's crossed circle.
+var aimed: GrappleAnchor
+var aimed_block := Block.NONE
 ## Anchor the arrow in play was fired at, or null.
 var anchor: GrappleAnchor
 ## The arrow in play (flying or stuck), or null.
@@ -70,10 +92,60 @@ func _ready() -> void:
 ## Picks the best anchor for a player whose chest is at `from`, aiming with
 ## `camera`. Updates the highlight and returns it (or null).
 func update_target(from: Vector3, camera: Camera3D) -> GrappleAnchor:
+	var forward := -camera.global_basis.z
+	var best := find_target(from, camera.global_position, forward)
+	_set_target(best)
+	_update_aim_readout(from, camera.global_position, forward)
+	return best
+
+
+## Velocity to carry on with after letting go of a pull moving at `pull`
+## (see release_speed). Never faster than `pull`.
+func release_velocity(pull: Vector3) -> Vector3:
+	var flat := Vector3(pull.x, 0.0, pull.z).limit_length(release_speed)
+	return Vector3(flat.x, minf(pull.y, release_rise_speed), flat.z)
+
+
+## Without a target, the anchor closest to the aim (within
+## readout_cone_degrees and readout_range) and what rules it out.
+func _update_aim_readout(from: Vector3, aim_from: Vector3, forward: Vector3) -> void:
+	aimed = null
+	aimed_block = Block.NONE
+	if target != null:
+		return
+	var best_angle := readout_cone_degrees
+	for node in get_tree().get_nodes_in_group(GrappleAnchor.GROUP):
+		var candidate := node as GrappleAnchor
+		if candidate == null or not candidate.enabled:
+			continue
+		if from.distance_to(candidate.global_position) > readout_range:
+			continue
+		var angle := rad_to_deg(forward.normalized().angle_to(candidate.global_position - aim_from))
+		if angle < best_angle:
+			aimed = candidate
+			best_angle = angle
+	if aimed == null:
+		return
+	var distance := from.distance_to(aimed.global_position)
+	if distance > max_range:
+		aimed_block = Block.TOO_FAR
+	elif distance < min_range:
+		aimed_block = Block.TOO_CLOSE
+	else:
+		aimed_block = Block.BLOCKED
+
+
+## Pure query (no highlight): the placed anchor closest to the aim direction
+## `forward` from the eye at `aim_from`, within range of the chest at `from`,
+## inside the aim cone and in line of sight. Null if none.
+##
+## Future free-aim grappling plugs in here: a second finder raycasts the aim
+## against a "grappleable" physics layer (the way climbing uses its own layer)
+## and returns a point target. See README, "Future architecture notes".
+func find_target(from: Vector3, aim_from: Vector3, forward: Vector3) -> GrappleAnchor:
 	var best: GrappleAnchor = null
 	var best_angle := aim_cone_degrees
-	var aim_from := camera.global_position
-	var forward := -camera.global_basis.z.normalized()
+	forward = forward.normalized()
 	for node in get_tree().get_nodes_in_group(GrappleAnchor.GROUP):
 		var candidate := node as GrappleAnchor
 		if candidate == null or not candidate.enabled:
@@ -86,7 +158,6 @@ func update_target(from: Vector3, camera: Camera3D) -> GrappleAnchor:
 			continue
 		best = candidate
 		best_angle = angle
-	_set_target(best)
 	return best
 
 
@@ -98,6 +169,8 @@ func has_line_of_sight(from: Vector3, point: Vector3) -> bool:
 
 func clear_target() -> void:
 	_set_target(null)
+	aimed = null
+	aimed_block = Block.NONE
 
 
 ## Fires a grapple arrow from the player's hand at `at`. The cable pays out

@@ -18,8 +18,12 @@ var tucked := false
 var traversal_pitch := 0.0
 ## Extra pitch from rolls, in radians.
 var tumble := 0.0
+## Roll in radians set by the controller while wall-running (leans the body
+## off the wall, feet on it). Smoothed here.
+var wall_roll := 0.0
 
 var _lean := Vector2.ZERO
+var _wall_roll := 0.0
 var _squash := 0.0
 var _height_scale := 1.0
 var _wobble := 0.0
@@ -74,4 +78,5 @@ func tick(delta: float, velocity: Vector3, sprint_amount: float) -> void:
 	_pivot.position.y = lerpf(_pivot.position.y, pivot_y, blend)
 	_height_scale = lerpf(_height_scale, height_scale, blend)
 	_pivot.scale = Vector3(1.0 + _squash * 0.6, _height_scale * (1.0 - _squash), 1.0 + _squash * 0.6)
-	_pivot.rotation = Vector3(_lean.x + traversal_pitch + tumble, 0.0, _lean.y + wobble_roll)
+	_wall_roll = lerpf(_wall_roll, wall_roll, 1.0 - exp(-12.0 * delta))
+	_pivot.rotation = Vector3(_lean.x + traversal_pitch + tumble, 0.0, _lean.y + wobble_roll + _wall_roll)

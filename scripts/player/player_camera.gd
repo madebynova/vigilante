@@ -43,6 +43,10 @@ extends Node3D
 ## FOV change at full focus (negative tightens), used during traversal sequences.
 @export var focus_fov_offset := -7.0
 
+@export_group("Wall run")
+## Slight roll away from the wall while wall-running, for readability.
+@export var wall_run_roll_degrees := 4.0
+
 var yaw := 0.0
 var pitch := deg_to_rad(-12.0)
 var crouched := false
@@ -52,10 +56,17 @@ var speed_amount := 0.0
 var focus_amount := 0.0
 ## Fraction of the full boom length currently in use (1 = unobstructed).
 var boom_fraction := 1.0
+## Normal of the wall the player is running along (ZERO when not wall-running).
+## The shoulder offset moves to the open side so the wall doesn't swallow the
+## camera, and the view rolls slightly away from the wall. Yaw and pitch stay
+## entirely with the player.
+var wall_normal := Vector3.ZERO
 
 var _focus := Vector3.ZERO
 var _height := 1.55
 var _shake := 0.0
+var _shoulder := 0.4
+var _roll := 0.0
 var _probe := SphereShape3D.new()
 
 @onready var _pitch_pivot: Node3D = $Pitch
@@ -74,6 +85,8 @@ func _ready() -> void:
 ## Jumps straight to the target without smoothing (spawn, respawn).
 func snap() -> void:
 	_height = pivot_height
+	_shoulder = shoulder_offset
+	_roll = 0.0
 	if target:
 		_focus = target.global_position + Vector3.UP * _height
 	boom_fraction = 1.0
@@ -117,10 +130,20 @@ func _process(delta: float) -> void:
 	_focus.x = lerpf(_focus.x, goal.x, h)
 	_focus.z = lerpf(_focus.z, goal.z, h)
 	_focus.y = lerpf(_focus.y, goal.y, _blend(vertical_sharpness, delta))
+	# FOV, shake and the wall-run framing run on real time so slow-motion
+	# doesn't drag them out.
+	var real_delta := delta / maxf(Engine.time_scale, 0.01)
+	var shoulder_goal := shoulder_offset
+	var roll_goal := 0.0
+	var across := wall_normal.dot(global_basis.x) # > 0: wall on the camera's left
+	if absf(across) > 0.2: # (looking straight at or away from it: default framing)
+		var wall_side := signf(across)
+		shoulder_goal = shoulder_offset * wall_side
+		roll_goal = -wall_side * deg_to_rad(wall_run_roll_degrees)
+	_shoulder = lerpf(_shoulder, shoulder_goal, _blend(6.0, real_delta))
+	_roll = lerpf(_roll, roll_goal, _blend(8.0, real_delta))
 	_update_transform(delta)
 
-	# FOV and shake run on real time so slow-motion doesn't drag them out.
-	var real_delta := delta / maxf(Engine.time_scale, 0.01)
 	var target_fov := lerpf(base_fov, sprint_fov, speed_amount) + focus_fov_offset * focus_amount
 	camera.fov = lerpf(camera.fov, target_fov, _blend(fov_sharpness, real_delta))
 	_shake = move_toward(_shake, 0.0, real_delta * 1.5)
@@ -133,13 +156,14 @@ func _update_transform(delta: float) -> void:
 	rotation = Vector3(0.0, yaw, 0.0)
 	_pitch_pivot.rotation = Vector3(pitch, 0.0, 0.0)
 
-	var boom := Vector3(shoulder_offset, 0.0, distance)
+	var boom := Vector3(_shoulder, 0.0, distance)
 	var free := _free_fraction(_focus, _pitch_pivot.global_basis * boom)
 	if free < boom_fraction or delta <= 0.0:
 		boom_fraction = free # pull in instantly so we never see through walls
 	else:
 		boom_fraction = lerpf(boom_fraction, free, _blend(zoom_out_sharpness, delta))
 	camera.position = boom * boom_fraction
+	camera.rotation.z = _roll
 	if camera.position.length() < hide_distance:
 		camera.cull_mask &= ~hide_layers_when_close
 	else:

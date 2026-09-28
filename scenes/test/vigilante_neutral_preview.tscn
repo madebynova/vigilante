@@ -1,6 +1,6 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://cyoia0avfgor3"]
 
-[ext_resource type="PackedScene" path="res://assets/characters/vigilante/vigilante_player.glb" id="1_model"]
+[ext_resource type="PackedScene" uid="uid://c6dk28rctkpls" path="res://assets/characters/vigilante/vigilante_player.glb" id="1_model"]
 [ext_resource type="AnimationLibrary" path="res://assets/characters/vigilante/animations/vigilante_animations.tres" id="2_lib"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
@@ -21,48 +21,42 @@ tonemap_mode = 2
 [sub_resource type="PlaneMesh" id="PlaneMesh_floor"]
 size = Vector2(8, 5)
 
-[node name="VigilanteNeutralPreview" type="Node3D"]
+[node name="VigilanteNeutralPreview" type="Node3D" unique_id=1373721002]
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1999533810]
 environment = SubResource("Environment_env")
 
-[node name="Sun" type="DirectionalLight3D" parent="."]
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=1516143775]
 transform = Transform3D(0.819152, -0.346189, 0.457338, 0, 0.797272, 0.603621, -0.573576, -0.494403, 0.653144, 0, 4, 0)
 shadow_enabled = true
 
-[node name="Floor" type="MeshInstance3D" parent="."]
+[node name="Floor" type="MeshInstance3D" parent="." unique_id=197005834]
 mesh = SubResource("PlaneMesh_floor")
 
-[node name="Front" parent="." instance=ExtResource("1_model")]
+[node name="Front" parent="." unique_id=1553095265 instance=ExtResource("1_model")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.4, 0, 0)
 
-[node name="FrontPlayer" type="AnimationPlayer" parent="."]
+[node name="FrontPlayer" type="AnimationPlayer" parent="." unique_id=263986041]
 root_node = NodePath("../Front")
-libraries = {
-&"": ExtResource("2_lib")
-}
+libraries/ = ExtResource("2_lib")
 autoplay = &"neutral"
 
-[node name="ThreeQuarter" parent="." instance=ExtResource("1_model")]
+[node name="ThreeQuarter" parent="." unique_id=1955986235 instance=ExtResource("1_model")]
 transform = Transform3D(0.819152, 0, -0.573576, 0, 1, 0, 0.573576, 0, 0.819152, 0, 0, 0)
 
-[node name="ThreeQuarterPlayer" type="AnimationPlayer" parent="."]
+[node name="ThreeQuarterPlayer" type="AnimationPlayer" parent="." unique_id=38501657]
 root_node = NodePath("../ThreeQuarter")
-libraries = {
-&"": ExtResource("2_lib")
-}
+libraries/ = ExtResource("2_lib")
 autoplay = &"neutral"
 
-[node name="Side" parent="." instance=ExtResource("1_model")]
+[node name="Side" parent="." unique_id=1634050622 instance=ExtResource("1_model")]
 transform = Transform3D(-4.37114e-08, 0, -1, 0, 1, 0, 1, 0, -4.37114e-08, 1.4, 0, 0)
 
-[node name="SidePlayer" type="AnimationPlayer" parent="."]
+[node name="SidePlayer" type="AnimationPlayer" parent="." unique_id=749970444]
 root_node = NodePath("../Side")
-libraries = {
-&"": ExtResource("2_lib")
-}
+libraries/ = ExtResource("2_lib")
 autoplay = &"neutral"
 
-[node name="Camera3D" type="Camera3D" parent="."]
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1375461513]
 transform = Transform3D(1, 0, 0, 0, 0.994522, 0.104528, 0, -0.104528, 0.994522, 0, 1.25, 5.2)
 fov = 38.0

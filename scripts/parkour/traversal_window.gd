@@ -17,13 +17,12 @@ enum Style { DIVE, VAULT, CLIMB }
 
 @export_group("Triggering")
 ## Dive window: only the Traverse button (E) takes it, as a dive, from either
-## side. Running or jumping into it does nothing. When false it is a plain
-## window: sprinting into it vaults, E / Jump climbs through.
+## side. When false it is a plain window: E climbs through it (or vaults
+## through when moving fast). Either way running, sprinting or jumping into a
+## window never takes it on its own, and its sill is never a ledge or vault.
 @export var dive_window := true
 ## Dive window: how far from the wall pressing E starts the dive.
 @export var dive_distance := 3.0
-## Plain window: horizontal speed at which running into it vaults.
-@export var auto_speed := 7.0
 ## Distance from the wall where the player leaves the ground.
 @export var takeoff_distance := 1.2
 ## Max distance from the wall for a slow, button-pressed climb-through.
@@ -66,8 +65,8 @@ func is_lined_up(pos: Vector3, dir: Vector3) -> bool:
 	return absf(x_at_wall) <= opening_width * 0.5 + 0.2
 
 
-## True if `point` is on this opening's sill. Used to stop generic vaults
-## from taking a dive window without the Traverse button.
+## True if `point` is on this opening's sill. Used to stop generic vaults and
+## ledge grabs from taking a window without the Traverse button.
 func covers_point(point: Vector3) -> bool:
 	var local := to_local(point)
 	return absf(local.x) <= opening_width * 0.5 + 0.1 \
@@ -97,6 +96,10 @@ func build_motion(start: Vector3, speed: float, style: Style) -> TraversalMotion
 	var land := _landing_point(x, s)
 	var pts := PackedVector3Array([start])
 	var m: TraversalMotion
+	# Starting right under the sill, the approach point in front of the wall is
+	# behind the player and gets dropped: rise straight up in front of the wall
+	# to this height first, so the path never cuts through the wall below.
+	var entry_y := -0.1 if style == Style.DIVE else 0.0
 	match style:
 		Style.DIVE:
 			# Low, fast, horizontal dive that rolls out with extra speed.
@@ -110,7 +113,7 @@ func build_motion(start: Vector3, speed: float, style: Style) -> TraversalMotion
 				# Nothing to land on (a high window): dive out into the open air
 				# and hand the momentum over to normal falling.
 				pts.append(to_global(Vector3(x, -0.6, -s * (half + 1.3))))
-			m = TraversalMotion.new(&"window_dive", _ahead_of(pts, start), 1.0)
+			m = TraversalMotion.new(&"window_dive", _clear_of_wall(_ahead_of(pts, start), start, entry_y), 1.0)
 			m.duration = clampf(m.length() / (speed * 1.05), 0.35, 0.6)
 			m.exit_velocity = through_direction(start) * speed * 1.12
 			m.body_pitch = -1.4
@@ -123,7 +126,7 @@ func build_motion(start: Vector3, speed: float, style: Style) -> TraversalMotion
 			pts.append(to_global(Vector3(x, 0.08, 0.0)))
 			pts.append(to_global(Vector3(x, -0.1, -s * (half + 0.5))))
 			pts.append(land)
-			m = TraversalMotion.new(&"window_vault", _ahead_of(pts, start), 1.0)
+			m = TraversalMotion.new(&"window_vault", _clear_of_wall(_ahead_of(pts, start), start, entry_y), 1.0)
 			m.duration = clampf(m.length() / (speed * 0.9), 0.45, 0.85)
 			m.exit_velocity = through_direction(start) * maxf(speed * 0.85, 5.0)
 			m.body_pitch = -0.4
@@ -133,7 +136,7 @@ func build_motion(start: Vector3, speed: float, style: Style) -> TraversalMotion
 			pts.append(to_global(Vector3(x, 0.1, 0.0)))
 			pts.append(to_global(Vector3(x, -0.1, -s * (half + 0.45))))
 			pts.append(land)
-			m = TraversalMotion.new(&"window_climb", _ahead_of(pts, start), 0.95)
+			m = TraversalMotion.new(&"window_climb", _clear_of_wall(_ahead_of(pts, start), start, entry_y), 0.95)
 			m.ease_out = 0.3
 			m.exit_velocity = through_direction(start) * 1.5
 			m.body_pitch = -0.2
@@ -150,6 +153,20 @@ func _ahead_of(pts: PackedVector3Array, start: Vector3) -> PackedVector3Array:
 		if s * to_local(pts[i]).z < start_depth - 0.1:
 			kept.append(pts[i])
 	return kept
+
+
+## If the path would head into the wall from below `entry_y` (feet height at
+## the sill, local), adds a point straight above the start at that height, so
+## the body rises in front of the wall before it goes through the opening.
+func _clear_of_wall(pts: PackedVector3Array, start: Vector3, entry_y: float) -> PackedVector3Array:
+	var local_start := to_local(start)
+	if pts.size() < 2 or local_start.y >= entry_y - 0.05:
+		return pts
+	var next := to_local(pts[1])
+	if absf(next.z) > wall_thickness * 0.5 + 0.2:
+		return pts # the next point is still in front of the wall: the rise is gradual
+	pts.insert(1, to_global(Vector3(_lane_x(local_start.x), entry_y, local_start.z)))
+	return pts
 
 
 func _lane_x(local_x: float) -> float:

@@ -1,0 +1,88 @@
+[gd_scene format=3 uid="uid://bcg4aeapvmved"]
+
+[ext_resource type="PackedScene" uid="uid://b6ug47m6yx4y7" path="res://scenes/city/city_greybox.tscn" id="1_city"]
+[ext_resource type="PackedScene" uid="uid://dpnlrwbe1e2jg" path="res://scenes/player/player.tscn" id="2_player"]
+[ext_resource type="Script" uid="uid://ds16gqvvi6gyk" path="res://scripts/debug/debug_hud.gd" id="3_hud"]
+[ext_resource type="Script" uid="uid://dc3br4qdo3vfi" path="res://scripts/game/mission.gd" id="4_mission"]
+[ext_resource type="Script" uid="uid://desoaluylsu6l" path="res://scripts/game/mission_step.gd" id="5_step"]
+[ext_resource type="Script" uid="uid://ctbiu8e7b8shw" path="res://scripts/game/drop_package.gd" id="6_package"]
+[ext_resource type="Script" uid="uid://ded8hfwiwuue8" path="res://scripts/ui/mission_hud.gd" id="7_mission_hud"]
+[ext_resource type="Script" uid="uid://b12a3nalydpk7" path="res://scripts/ui/pause_menu.gd" id="8_pause"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_drop"]
+size = Vector3(3, 2.4, 3)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_home"]
+size = Vector3(14, 9.6, 10)
+
+[node name="CityMain" type="Node3D" unique_id=1871231741]
+
+[node name="CityGreybox" parent="." unique_id=2003814356 instance=ExtResource("1_city")]
+
+[node name="Player" parent="." unique_id=1272576952 instance=ExtResource("2_player")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -21, 0.05, 42)
+
+[node name="Mission" type="Node3D" parent="." unique_id=1311470522 node_paths=PackedStringArray("player")]
+script = ExtResource("4_mission")
+title = "DEAD DROP"
+briefing = "A courier left a package on the Hotel roof for a pickup tonight.
+Get to it first, then bring it home."
+save_key = &"dead_drop"
+player = NodePath("../Player")
+par_gold = 22.0
+par_silver = 35.0
+par_bronze = 60.0
+
+[node name="Drop" type="Area3D" parent="Mission" unique_id=640718259]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -24.8, 17.5, -19.2)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("5_step")
+objective = "Intercept the drop"
+location = "Hotel roof"
+done_title = "PACKAGE SECURED"
+
+[node name="Zone" type="CollisionShape3D" parent="Mission/Drop" unique_id=1880532911]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, 0)
+shape = SubResource("BoxShape3D_drop")
+
+[node name="Package" type="Node3D" parent="Mission/Drop" unique_id=1113960417]
+transform = Transform3D(0.939693, 0, 0.34202, 0, 1, 0, -0.34202, 0, 0.939693, 0, 0, 0)
+script = ExtResource("6_package")
+
+[node name="Home" type="Area3D" parent="Mission" unique_id=1507236590]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -23, 0, 41)
+collision_layer = 0
+collision_mask = 2
+script = ExtResource("5_step")
+objective = "Bring it back to the safehouse"
+location = "Safehouse"
+done_title = "DELIVERED"
+marker_offset = Vector3(0, 7.7, 0)
+
+[node name="Zone" type="CollisionShape3D" parent="Mission/Home" unique_id=1726640953]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.8, 0)
+shape = SubResource("BoxShape3D_home")
+
+[node name="MissionHUD" type="CanvasLayer" parent="." unique_id=417520366 node_paths=PackedStringArray("mission", "player")]
+script = ExtResource("7_mission_hud")
+mission = NodePath("../Mission")
+player = NodePath("../Player")
+
+[node name="PauseMenu" type="CanvasLayer" parent="." unique_id=2046839104 node_paths=PackedStringArray("mission", "player")]
+script = ExtResource("8_pause")
+mission = NodePath("../Mission")
+player = NodePath("../Player")
+
+[node name="DebugHUD" type="CanvasLayer" parent="." unique_id=1452650604 node_paths=PackedStringArray("player")]
+script = ExtResource("3_hud")
+player = NodePath("../Player")
+
+[node name="Label" type="Label" parent="DebugHUD" unique_id=130213821]
+offset_left = 24.0
+offset_top = 16.0
+offset_right = 1400.0
+offset_bottom = 320.0
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 7
+theme_override_font_sizes/font_size = 24

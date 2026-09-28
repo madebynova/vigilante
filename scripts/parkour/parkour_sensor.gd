@@ -1,6 +1,7 @@
 class_name ParkourSensor
 extends Node3D
-## Physics probes describing vaultable / climbable geometry in front of a body.
+## Physics probes describing vaultable / climbable geometry in front of a body
+## and runnable walls beside it.
 ##
 ## The sensor only answers questions ("is there something to vault here?",
 ## "is there a ledge I can grab?"). It never moves the player, so future moves
@@ -44,6 +45,29 @@ class Ledge:
 	var can_stand: bool
 
 
+## A wall beside the player that can be run along.
+class RunWall:
+	## Point on the face at hip height.
+	var point: Vector3
+	## Face normal, flattened, pointing back at the player.
+	var normal: Vector3
+	## Gap between the body surface and the face.
+	var distance: float
+
+
+## A deliberately climbable surface (ladder, drainpipe, scaffold) in front of
+## the body.
+class ClimbSurface:
+	## Point on the face at chest height (or, from above, where the climb starts).
+	var point: Vector3
+	## Face normal, flattened, pointing back at the player.
+	var normal: Vector3
+	## Gap between the body surface and the face.
+	var distance: float
+	## Feet position to start climbing from (only set by detect_climb_below()).
+	var mount_position: Vector3
+
+
 @export_flags_3d_physics var collision_mask := 1
 @export var body_radius := 0.35
 @export var standing_height := 1.8
@@ -64,8 +88,31 @@ class Ledge:
 ## Feet sit this far below the top edge while hanging.
 @export var hang_depth := 1.95
 
+@export_group("Wall run")
+## How far past the body surface a wall can be and still be run on.
+@export var wall_run_reach := 0.3
+## Faces tilted further than this from vertical (slopes, overhangs) can't be run on.
+@export var max_wall_run_tilt_degrees := 12.0
+
+@export_group("Climb")
+## Physics layers of deliberately climbable surfaces (ladders, drainpipes,
+## scaffolding). Only geometry on these layers can be climbed; plain walls
+## never are. It must be the first thing a probe hits (a wall in front of a
+## ladder hides it).
+@export_flags_3d_physics var climb_mask := 4
+## How far past the body surface a climbable face can be grabbed.
+@export var climb_reach := 0.45
+
 const _VAULT_PROBE_HEIGHTS: Array[float] = [0.2, 0.5, 0.85, 1.15]
 const _LEDGE_PROBE_HEIGHTS: Array[float] = [0.6, 1.0, 1.4, 1.8]
+## Hip and head: a runnable wall covers both, so low walls and railings don't count.
+const _WALL_RUN_PROBE_HEIGHTS: Array[float] = [0.6, 1.6]
+## Hips and chest: holding on to a climbable surface needs it at both.
+const CLIMB_GRIP_HEIGHTS: Array[float] = [0.5, 1.4]
+## Hands reaching up while climbing (above the feet).
+const CLIMB_REACH_HEIGHT := 1.9
+## Feet reaching down while climbing (above the feet).
+const CLIMB_FOOT_HEIGHT := 0.1
 
 
 ## Looks for something to vault in direction `dir`. Returns null if nothing
@@ -152,6 +199,114 @@ func detect_ledge(feet: Vector3, dir: Vector3) -> Ledge:
 	l.can_hang = ground_below.is_empty() \
 			and has_clearance(l.hang_position, standing_height, body_radius * 0.9)
 	return l
+
+
+## Looks for a wall to run along on the `side` (a horizontal direction) of a
+## body at `feet`: one flat, near-vertical face within wall_run_reach of the
+## body surface at both hip and head height. Null for anything else (nothing
+## there, too low, sloped, or two different faces). `reach` overrides
+## wall_run_reach (debug readouts use it to spot walls just out of reach).
+func detect_run_wall(feet: Vector3, side: Vector3, reach := -1.0) -> RunWall:
+	side = _flat(side).normalized()
+	if side == Vector3.ZERO:
+		return null
+	var max_normal_y := sin(deg_to_rad(max_wall_run_tilt_degrees))
+	var probe_length := body_radius + (wall_run_reach if reach < 0.0 else reach)
+	var wall: RunWall = null
+	for h in _WALL_RUN_PROBE_HEIGHTS:
+		var from := feet + Vector3.UP * h
+		var hit := _ray(from, from + side * probe_length)
+		if hit.is_empty() or absf((hit.normal as Vector3).y) > max_normal_y:
+			return null
+		var n := _flat(hit.normal).normalized()
+		if n.dot(side) > -0.5:
+			return null # facing away from the probe, not a wall alongside
+		if wall == null:
+			wall = RunWall.new()
+			wall.point = hit.position
+			wall.normal = n
+			wall.distance = _flat(hit.position - from).length() - body_radius
+		elif n.dot(wall.normal) < 0.98:
+			return null # hip and head hit different faces
+	return wall
+
+
+## Looks for a climbable surface in direction `dir` from a body at `feet`,
+## covering every height in `heights` (default: the grip heights) within
+## climb_reach of the body surface. Null if any height misses, hits plain
+## geometry first, or hits a face that isn't upright or square enough.
+func detect_climb(feet: Vector3, dir: Vector3, heights: Array[float] = CLIMB_GRIP_HEIGHTS) -> ClimbSurface:
+	dir = _flat(dir).normalized()
+	if dir == Vector3.ZERO:
+		return null
+	var surface: ClimbSurface = null
+	for h in heights:
+		var from := feet + Vector3.UP * h
+		var hit := _climb_ray(from, from + dir * (body_radius + climb_reach))
+		if hit.is_empty():
+			return null
+		var n := _flat(hit.normal).normalized()
+		if n.dot(dir) > -0.5:
+			return null # too glancing
+		if surface == null:
+			surface = ClimbSurface.new()
+			surface.point = hit.position
+			surface.normal = n
+			surface.distance = _flat(hit.position - from).length() - body_radius
+		elif n.dot(surface.normal) < 0.9:
+			return null # two different faces
+	return surface
+
+
+## True if the climbable surface with `normal` continues at `height` above
+## `feet` (reaching up with the hands or down with the feet).
+func climb_continues(feet: Vector3, normal: Vector3, height: float) -> bool:
+	var from := feet + Vector3.UP * height
+	var hit := _climb_ray(from, from - _flat(normal).normalized() * (body_radius + climb_reach + 0.1))
+	return not hit.is_empty() and (_flat(hit.normal).normalized()).dot(normal) > 0.9
+
+
+## Standing at a drop with feet at `feet` and facing `dir` (toward the drop):
+## a climbable surface on the face below the edge, to climb down onto. Its
+## mount_position is where the feet go to start climbing (hands just below the
+## edge). Null if the floor carries on ahead or there is nothing to climb.
+func detect_climb_below(feet: Vector3, dir: Vector3) -> ClimbSurface:
+	dir = _flat(dir).normalized()
+	if dir == Vector3.ZERO:
+		return null
+	var ahead := feet + dir * (body_radius + 0.6)
+	if not _ray(ahead + Vector3.UP * 0.3, ahead - Vector3.UP * 1.2).is_empty():
+		return null # more floor ahead: not at an edge
+	var mount_y := feet.y - (CLIMB_REACH_HEIGHT + 0.1)
+	for reach_out: float in [0.9, 1.4]:
+		var from := Vector3(feet.x, mount_y + CLIMB_GRIP_HEIGHTS[1], feet.z) + dir * (body_radius + reach_out)
+		var hit := _climb_ray(from, from - dir * (body_radius + reach_out + 1.0))
+		if hit.is_empty():
+			continue
+		var n := _flat(hit.normal).normalized()
+		if n.dot(dir) < 0.8:
+			continue # must face out over the drop, toward the player's way
+		var mount := Vector3(hit.position.x, mount_y, hit.position.z) + n * (body_radius + 0.05)
+		var check := detect_climb(mount, -n)
+		if check == null or not has_clearance(mount, standing_height):
+			continue
+		check.mount_position = mount
+		return check
+	return null
+
+
+## Ray against plain and climbable geometry; returns the hit only if the first
+## thing struck is climbable (on climb_mask), otherwise empty.
+func _climb_ray(from: Vector3, to: Vector3) -> Dictionary:
+	var query := PhysicsRayQueryParameters3D.create(from, to, collision_mask | climb_mask)
+	query.hit_back_faces = false
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return hit
+	var body := hit.collider as CollisionObject3D
+	if body == null or (body.collision_layer & climb_mask) == 0:
+		return {}
+	return hit
 
 
 ## True if a capsule of `height` standing at `feet` overlaps no geometry.

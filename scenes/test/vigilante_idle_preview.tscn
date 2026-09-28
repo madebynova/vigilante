@@ -1,7 +1,7 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://egufpf8vpykk"]
 
-[ext_resource type="Script" path="res://scripts/debug/pose_preview.gd" id="1_preview"]
-[ext_resource type="PackedScene" path="res://assets/characters/vigilante/vigilante_player.glb" id="2_model"]
+[ext_resource type="Script" uid="uid://cfjyxrl4yjii1" path="res://scripts/debug/pose_preview.gd" id="1_preview"]
+[ext_resource type="PackedScene" uid="uid://c6dk28rctkpls" path="res://assets/characters/vigilante/vigilante_player.glb" id="2_model"]
 [ext_resource type="AnimationLibrary" path="res://assets/characters/vigilante/animations/vigilante_animations.tres" id="3_lib"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
@@ -22,96 +22,86 @@ tonemap_mode = 2
 [sub_resource type="PlaneMesh" id="PlaneMesh_floor"]
 size = Vector2(9, 5)
 
-[node name="VigilanteIdlePreview" type="Node3D"]
+[node name="VigilanteIdlePreview" type="Node3D" unique_id=1536742631]
 script = ExtResource("1_preview")
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=509141356]
 environment = SubResource("Environment_env")
 
-[node name="Sun" type="DirectionalLight3D" parent="."]
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=2115141360]
 transform = Transform3D(0.819152, -0.346189, 0.457338, 0, 0.797272, 0.603621, -0.573576, -0.494403, 0.653144, 0, 4, 0)
 shadow_enabled = true
 
-[node name="Floor" type="MeshInstance3D" parent="."]
+[node name="Floor" type="MeshInstance3D" parent="." unique_id=217198190]
 mesh = SubResource("PlaneMesh_floor")
 
-[node name="Neutral" parent="." instance=ExtResource("2_model")]
+[node name="Neutral" parent="." unique_id=1066473524 instance=ExtResource("2_model")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.2, 0, 0)
 
-[node name="NeutralPlayer" type="AnimationPlayer" parent="."]
+[node name="NeutralPlayer" type="AnimationPlayer" parent="." unique_id=584952800]
 root_node = NodePath("../Neutral")
-libraries = {
-&"": ExtResource("3_lib")
-}
+libraries/ = ExtResource("3_lib")
 autoplay = &"neutral"
 
-[node name="NeutralLabel" type="Label3D" parent="."]
+[node name="NeutralLabel" type="Label3D" parent="." unique_id=275187948]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.2, 2.1, 0)
 text = "NEUTRAL"
 font_size = 30
 
-[node name="IdleStart" parent="." instance=ExtResource("2_model")]
+[node name="IdleStart" parent="." unique_id=1352107181 instance=ExtResource("2_model")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.6, 0, 0)
 
-[node name="IdleStartPlayer" type="AnimationPlayer" parent="."]
+[node name="IdleStartPlayer" type="AnimationPlayer" parent="." unique_id=1637237572]
 root_node = NodePath("../IdleStart")
-libraries = {
-&"": ExtResource("3_lib")
-}
+libraries/ = ExtResource("3_lib")
 autoplay = &"idle"
 metadata/preview_time = 0.0
 
-[node name="IdleStartLabel" type="Label3D" parent="."]
+[node name="IdleStartLabel" type="Label3D" parent="." unique_id=529373373]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.6, 2.1, 0)
 text = "IDLE 0.0 s"
 font_size = 30
 
-[node name="IdleInhale" parent="." instance=ExtResource("2_model")]
+[node name="IdleInhale" parent="." unique_id=1758751445 instance=ExtResource("2_model")]
 
-[node name="IdleInhalePlayer" type="AnimationPlayer" parent="."]
+[node name="IdleInhalePlayer" type="AnimationPlayer" parent="." unique_id=1460004678]
 root_node = NodePath("../IdleInhale")
-libraries = {
-&"": ExtResource("3_lib")
-}
+libraries/ = ExtResource("3_lib")
 autoplay = &"idle"
 metadata/preview_time = 0.75
 
-[node name="IdleInhaleLabel" type="Label3D" parent="."]
+[node name="IdleInhaleLabel" type="Label3D" parent="." unique_id=407511217]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.1, 0)
 text = "INHALE 0.75 s"
 font_size = 30
 
-[node name="IdleExhale" parent="." instance=ExtResource("2_model")]
+[node name="IdleExhale" parent="." unique_id=1475242491 instance=ExtResource("2_model")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.6, 0, 0)
 
-[node name="IdleExhalePlayer" type="AnimationPlayer" parent="."]
+[node name="IdleExhalePlayer" type="AnimationPlayer" parent="." unique_id=1682439369]
 root_node = NodePath("../IdleExhale")
-libraries = {
-&"": ExtResource("3_lib")
-}
+libraries/ = ExtResource("3_lib")
 autoplay = &"idle"
 metadata/preview_time = 2.25
 
-[node name="IdleExhaleLabel" type="Label3D" parent="."]
+[node name="IdleExhaleLabel" type="Label3D" parent="." unique_id=1209779527]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.6, 2.1, 0)
 text = "EXHALE 2.25 s"
 font_size = 30
 
-[node name="IdleLive" parent="." instance=ExtResource("2_model")]
+[node name="IdleLive" parent="." unique_id=1549569220 instance=ExtResource("2_model")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.2, 0, 0)
 
-[node name="IdleLivePlayer" type="AnimationPlayer" parent="."]
+[node name="IdleLivePlayer" type="AnimationPlayer" parent="." unique_id=1524339679]
 root_node = NodePath("../IdleLive")
-libraries = {
-&"": ExtResource("3_lib")
-}
+libraries/ = ExtResource("3_lib")
 autoplay = &"idle"
 
-[node name="IdleLiveLabel" type="Label3D" parent="."]
+[node name="IdleLiveLabel" type="Label3D" parent="." unique_id=182674881]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.2, 2.1, 0)
 text = "IDLE (playing)"
 font_size = 30
 
-[node name="Camera3D" type="Camera3D" parent="."]
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1805094667]
 transform = Transform3D(1, 0, 0, 0, 0.994522, 0.104528, 0, -0.104528, 0.994522, 0, 1.2, 6.6)
 fov = 45.0

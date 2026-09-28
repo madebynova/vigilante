@@ -8,10 +8,12 @@ extends SceneTree
 ##   godot --path . -s res://tests/movement_test.gd -- --shots=C:/some/dir
 
 const ACTIONS: Array[StringName] = [&"move_forward", &"move_back", &"move_left", &"move_right",
-		&"sprint", &"jump", &"crouch", &"traverse", &"grapple"]
-## Real keys for movement actions, sent as key events like a keyboard would.
+		&"sprint", &"jump", &"crouch", &"traverse", &"grapple", &"bullet_time"]
+## Real inputs for actions, sent as key / mouse events like a keyboard and
+## mouse would.
 const KEY_FOR := {&"move_forward": KEY_W, &"move_left": KEY_A, &"move_back": KEY_S,
-		&"move_right": KEY_D, &"jump": KEY_SPACE, &"traverse": KEY_E, &"grapple": KEY_F}
+		&"move_right": KEY_D, &"jump": KEY_SPACE, &"traverse": KEY_E, &"bullet_time": KEY_F}
+const MOUSE_FOR := {&"grapple": MOUSE_BUTTON_RIGHT}
 
 var player: Player
 var settings: MovementSettings
@@ -49,6 +51,11 @@ func _run() -> void:
 	await test_windows()
 	await test_window_grapple_loop()
 	await test_grapple_arrow()
+	await test_grapple_release()
+	await test_wall_run()
+	await test_wall_run_grapple()
+	await test_wall_run_hint()
+	await test_playground()
 	await test_character()
 	await test_idle_animation()
 	await test_neutral_stance()
@@ -385,24 +392,35 @@ func test_ledges() -> void:
 
 
 func test_slow_time() -> void:
-	_section("Slow time (Space)")
+	_section("Slow time (F)")
 	var bt := player.bullet_time
 
-	# Space on the ground is still a jump and never slows time.
+	# Space on the ground is a jump and never slows time.
 	await _place(Vector3(20, 0, 20), 0.0)
 	_key_event(&"jump", true)
 	var jumped := await _wait_until(func() -> bool: return player.velocity.y > 3.0, 0.3)
 	_key_event(&"jump", false)
 	_check("Space on the ground jumps", jumped)
 	_check("ground jump does not start slow time", not bt.active and is_equal_approx(Engine.time_scale, 1.0))
-	# Space again at the apex of a normal jump (low over the ground): no slow time.
+	# Space again at the apex of a normal jump: no slow time.
 	await _wait_until(func() -> bool: return player.velocity.y < 0.5, 1.0)
 	await _tap(&"jump")
 	await _phys(2)
 	_check("Space mid normal jump does not start slow time", not bt.active)
 	await _wait_until(func() -> bool: return player.is_on_floor(), 2.0)
+	# F on the ground: nothing (slow time is for the air, over a real drop).
+	await _phys(5)
+	await _tap(&"bullet_time")
+	await _phys(2)
+	_check("F on the ground does not start slow time", not bt.active and player.state == Player.State.MOVE)
+	# Space in the air over a real drop no longer slows time: Space is only jump now.
+	await _drop_off_roof()
+	await _tap(&"jump")
+	await _phys(2)
+	_check("Space in the air over a drop: no slow time (it's F now)", not bt.active and bt.is_ready())
+	await _wait_until(func() -> bool: return player.is_on_floor(), 3.0)
 
-	# Space in the air with a real drop below: slow time starts.
+	# F in the air with a real drop below: slow time starts.
 	var at_end := {fov = 0.0, usec = 0}
 	var on_end := func() -> void:
 		at_end.fov = player.camera.camera.fov
@@ -412,9 +430,9 @@ func test_slow_time() -> void:
 	var start := {usec = 0}
 	var on_start := func() -> void: start.usec = Time.get_ticks_usec()
 	bt.started.connect(on_start)
-	await _tap(&"jump")
+	await _tap(&"bullet_time")
 	await _phys(1)
-	_check("Space in the air (roof drop) starts slow time", bt.active and player.last_action == &"slow_time",
+	_check("F in the air (roof drop) starts slow time", bt.active and player.last_action == &"slow_time",
 			"last %s" % player.last_action)
 	_check("slow time uses the existing 0.3x slow-down", is_equal_approx(Engine.time_scale, bt.time_scale), "%.2f" % Engine.time_scale)
 	_check("slow time duration is %.1f s" % bt.duration, is_equal_approx(bt.duration, 0.4), "%.2f" % bt.duration)
@@ -429,17 +447,17 @@ func test_slow_time() -> void:
 	_check("camera FOV returns to normal", absf(player.camera.camera.fov - lerpf(player.camera.base_fov, player.camera.sprint_fov,
 			player.camera.speed_amount)) < 1.0, "%.1f" % player.camera.camera.fov)
 
-	# Recharging: Space in the air does nothing until the cooldown is over.
+	# Recharging: F in the air does nothing until the cooldown is over.
 	_check("not ready straight after (recharging %.1f s)" % bt.cooldown, not bt.is_ready() and bt.cooldown_left() > bt.cooldown - 1.5,
 			"%.1f s left" % bt.cooldown_left())
 	await _drop_off_roof(false)
-	await _tap(&"jump")
+	await _tap(&"bullet_time")
 	await _phys(2)
-	_check("Space in the air while recharging: no slow time", not bt.active)
+	_check("F in the air while recharging: no slow time", not bt.active)
 	await _real_until(func() -> bool: return bt.is_ready(), bt.cooldown + 1.0)
 	_check("ready again after the cooldown", bt.is_ready())
 	await _drop_off_roof(false)
-	await _tap(&"jump")
+	await _tap(&"bullet_time")
 	await _phys(1)
 	_check("can use it again once recharged", bt.active)
 	await _real_until(func() -> bool: return not bt.active, bt.duration + 1.0)
@@ -602,24 +620,37 @@ func test_windows() -> void:
 	r = await _window_run({start = Vector3(0, 0, -33.3), yaw = 180.0, approach = "sprint"})
 	_check("inside, sprinting across the room + E: dives OUT", r.started and ids.has(&"window_dive") and r.outside, "%s end %s" % [ids, r.end])
 
-	# E elsewhere keeps its normal parkour meaning.
+	# E is for windows (and ladders) only: it never vaults. Space does.
 	ids.clear()
 	await _place(Vector3(-7, 0, -4.8), 0.0)
 	Input.action_press(&"move_forward")
 	await _phys(6)
 	await _tap(&"traverse")
+	await _phys(20)
+	_check("E at a waist-high wall doesn't vault (E is windows and ladders only)", ids.is_empty(), str(ids))
+	await _tap(&"jump")
 	await _wait_until(func() -> bool: return player.state == Player.State.MOVE and ids.size() > 0, 2.0)
 	_release_all()
-	_check("E at a waist-high wall still vaults", ids.has(&"vault_over"), str(ids))
+	_check("Space there vaults it", ids.has(&"vault_over"), str(ids))
 
-	# The back window is a plain window and keeps its behaviour.
+	# The back window is a plain window: E climbs (or vaults) through it, but
+	# like every window, running, sprinting or jumping into it never takes it.
 	ids.clear()
 	await _place(Vector3(2.0, 0, -29.0), 0.0)
 	Input.action_press(&"move_forward")
 	Input.action_press(&"sprint")
-	await _wait_until(func() -> bool: return player.global_position.z < -35.0 and player.state == Player.State.MOVE, 3.0)
+	await _phys(90)
 	_release_all()
-	_check("back window: sprinting into it still vaults", ids.has(&"window_vault") and player.global_position.z < -34.0,
+	_check("back window: sprinting into it does nothing (windows are E only)", ids.is_empty() and player.global_position.z > -33.85,
+			"%s z=%.2f" % [ids, player.global_position.z])
+	ids.clear()
+	await _place(Vector3(2.0, 0, -32.3), 0.0)
+	Input.action_press(&"move_forward")
+	await _phys(4)
+	await _tap(&"jump")
+	await _phys(50)
+	_release_all()
+	_check("back window: jumping into it does nothing", ids.is_empty() and player.global_position.z > -33.85,
 			"%s z=%.2f" % [ids, player.global_position.z])
 	ids.clear()
 	await _place(Vector3(2.0, 0, -30.5), 0.0)
@@ -701,8 +732,22 @@ func test_window_grapple_loop() -> void:
 	var bt := player.bullet_time
 	var ids := _record_traversals()
 	_check("test area: tower window, two anchors, start marker", win.dive_window and anchor_a != null and anchor_b != null)
-	_check("grapple input exists (Right mouse / F), separate from E and Space", InputMap.has_action(&"grapple")
-			and InputMap.action_get_events(&"grapple").size() == 2)
+	var grapple_events := InputMap.action_get_events(&"grapple")
+	var slow_events := InputMap.action_get_events(&"bullet_time")
+	_check("grapple is bound to the right mouse button only (F removed)", grapple_events.size() == 1
+			and grapple_events[0] is InputEventMouseButton
+			and (grapple_events[0] as InputEventMouseButton).button_index == MOUSE_BUTTON_RIGHT, str(grapple_events))
+	_check("bullet time is bound to F only", slow_events.size() == 1 and slow_events[0] is InputEventKey
+			and (slow_events[0] as InputEventKey).physical_keycode == KEY_F, str(slow_events))
+	# F with a grapple target in sight: no grapple (F is slow time now).
+	await _place(Vector3(30, 8.05, -44.0), 180.0)
+	_aim_at(anchor_a.global_position)
+	await _phys(3)
+	var had_target := player.grapple.target == anchor_a
+	await _tap(&"bullet_time")
+	await _phys(5)
+	_check("F with a grapple target in sight does not fire the grapple", had_target and player.state == Player.State.MOVE
+			and player.grapple.arrow == null and not player.bullet_time.active, str(player.last_action))
 
 	# E does nothing with no window around.
 	await _place(Vector3(20, 0, 30), 0.0)
@@ -777,13 +822,13 @@ func test_window_grapple_loop() -> void:
 
 	# Grapple from a normal fall (no dive), steep from well below the anchor.
 	await _place(Vector3(30, 4.0, -35.0), 0.0)
-	var g := await _grapple_to(anchor_b, "key")
+	var g := await _grapple_to(anchor_b)
 	_check("mid-air grapple from 4.5 m below: arrives and lands on Tower B", g.arrived and g.on_floor and absf(g.landed.y - 8.0) < 0.1
 			and g.landed.z < -40.2, "landed at %s" % g.landed)
 
 	# From Tower B's roof back up to Tower A (on foot, right mouse button): the loop repeats.
 	await _place(Vector3(30, 8.05, -44.0), 180.0)
-	g = await _grapple_to(anchor_a, "mouse")
+	g = await _grapple_to(anchor_a)
 	_check("grapple from the ground with right mouse: back up to Tower A", g.arrived and g.on_floor and absf(g.landed.y - 10.0) < 0.1
 			and g.landed.x > 25.2 and g.landed.z > -28.0, "landed at %s" % g.landed)
 	_check("not stuck in geometry after the return", g.clear)
@@ -951,15 +996,21 @@ func _tower_dive(anchor: GrappleAnchor, press_grapple: bool) -> Dictionary:
 	await _wait_until(func() -> bool: return player.state == Player.State.TRAVERSAL, 0.5)
 	out.dove = out.ids.has(&"window_dive")
 	_release_all()
-	# Clear of the frame, still in the air: aim at the next building.
+	# Aim at the next building while diving through the frame. A grapple press
+	# just before clearing it is remembered (grapple buffer) and fires on the
+	# first tick the player is clear, like a player pressing slightly early.
+	# (Pressing only after clearing the frame raced the end of the dive, which
+	# depends on how much of it bullet time slowed - real time - and was flaky.)
+	_aim_at(anchor.global_position)
+	if press_grapple:
+		await _wait_until(func() -> bool: return player.global_position.z < win.global_position.z + 0.3, 2.0)
+		await _tap(&"grapple")
+	# Clear of the frame, still in the air.
 	await _wait_until(func() -> bool: return player.global_position.z < win.global_position.z - 0.7, 2.0)
 	out.clear_pos = player.global_position
 	out.out_airborne = player.global_position.y > 9.5 and not player.is_on_floor()
-	_aim_at(anchor.global_position)
-	await _phys(2)
 	out.target_seen = player.grapple.target == anchor and anchor.is_targeted()
 	if press_grapple:
-		await _tap(&"grapple")
 		# Follow the arrow: it must close on the anchor every frame until it sticks.
 		var last := INF
 		while grapple.is_arrow_flying() and out.arrow_frames < 120:
@@ -1004,8 +1055,8 @@ func _tower_dive(anchor: GrappleAnchor, press_grapple: bool) -> Dictionary:
 	return out
 
 
-## Aims at `anchor`, presses grapple (F key or right mouse) and follows the pull.
-func _grapple_to(anchor: GrappleAnchor, input: String) -> Dictionary:
+## Aims at `anchor`, presses grapple (right mouse) and follows the pull.
+func _grapple_to(anchor: GrappleAnchor) -> Dictionary:
 	var out := {arrived = false, landed = Vector3.ZERO, on_floor = false, clear = false}
 	_aim_at(anchor.global_position)
 	await _phys(2)
@@ -1014,14 +1065,7 @@ func _grapple_to(anchor: GrappleAnchor, input: String) -> Dictionary:
 		out.arrived = arrived
 		done[0] = true
 	player.grapple_finished.connect(on_finish)
-	if input == "mouse":
-		_mouse_button(MOUSE_BUTTON_RIGHT, true)
-		await process_frame
-		await physics_frame
-		await physics_frame
-		_mouse_button(MOUSE_BUTTON_RIGHT, false)
-	else:
-		await _tap(&"grapple")
+	await _tap(&"grapple") # right mouse button
 	await _wait_until(func() -> bool: return done[0], 4.0)
 	player.grapple_finished.disconnect(on_finish)
 	await _wait_until(func() -> bool: return player.is_on_floor(), 4.0)
@@ -1195,7 +1239,7 @@ func test_grapple_arrow() -> void:
 	Input.action_press(&"move_forward")
 	await _wait_until(func() -> bool: return not player.is_on_floor() and player.global_position.y < 7.3, 2.0)
 	Input.action_release(&"move_forward")
-	await _tap(&"jump")
+	await _tap(&"bullet_time")
 	var at_fire := {slow = false, scale = 1.0}
 	var on_slow_fire := func(_a: GrappleAnchor) -> void:
 		at_fire.slow = bt.active
@@ -1241,6 +1285,570 @@ func test_grapple_arrow() -> void:
 	player.grapple_fired.disconnect(on_fired)
 	player.grapple_started.disconnect(on_pull)
 	player.grapple_finished.disconnect(on_end)
+
+
+func test_grapple_release() -> void:
+	_section("Grapple release: the way you were going, never a launch")
+	var anchor_a := front_window.get_parent().get_parent().get_node("GrappleTestArea/AnchorTowerA") as GrappleAnchor
+	var g := player.grapple
+	for run in [{dist = 8.0, label = "early (8 m out)", steer = false}, {dist = 1.5, label = "right before the anchor", steer = true}]:
+		var r := await _release_run(anchor_a, run.dist, run.steer)
+		var before: Vector3 = r.v_before
+		var after: Vector3 = r.v_release
+		var same_way := Vector2(after.x, after.z).normalized().dot(Vector2(before.x, before.z).normalized()) > 0.99
+		_check("release %s: carries on the pull's way, trimmed to what a body carries (no boost, no launch)" % run.label,
+				r.released and r.last_action == &"grapple_release" and after.is_equal_approx(g.release_velocity(before))
+				and same_way and after.length() <= before.length() + 0.01
+				and Vector2(after.x, after.z).length() <= g.release_speed + 0.01 and after.y <= g.release_rise_speed + 0.01,
+				"%s -> %s, %s" % [before, after, r.last_action])
+		if not run.steer:
+			_check("release %s: horizontal speed never grows afterwards, vertical only falls" % run.label,
+					r.max_flat <= r.flat_release + 0.01 and r.vy_only_falls, "released at %.2f m/s, max after %.2f m/s"
+					% [r.flat_release, r.max_flat])
+		else:
+			_check("release %s: normal movement takes over and can steer" % run.label, r.state_after == Player.State.MOVE
+					and r.steer_gain > 2.0 and r.max_flat <= r.flat_release + 0.5, "steer +%.1f m/s sideways, top speed across %.2f (released %.2f)"
+					% [r.steer_gain, r.max_flat, r.flat_release])
+
+
+## Grapples from Tower B to `anchor`, releases once within `dist` of it and
+## follows the free movement for half a second (optionally steering left).
+func _release_run(anchor: GrappleAnchor, dist: float, steer: bool) -> Dictionary:
+	var out := {released = false, v_before = Vector3.ZERO, v_release = Vector3.INF, last_action = &"", flat_release = 0.0,
+			speed_release = 0.0, max_flat = 0.0, max_speed = 0.0, vy_only_falls = true, steer_gain = 0.0, state_after = -1}
+	await _place(Vector3(30, 8.05, -44.0), 180.0)
+	_aim_at(anchor.global_position)
+	await _phys(3)
+	var tick_start := [Vector3.ZERO]
+	var on_tick := func() -> void: tick_start[0] = player.velocity # before the player's step
+	var on_finish := func(_arrived: bool) -> void:
+		out.released = true
+		out.v_before = tick_start[0]
+		out.v_release = player.velocity
+		out.last_action = player.last_action
+	physics_frame.connect(on_tick)
+	player.grapple_finished.connect(on_finish)
+	await _tap(&"grapple")
+	var close_enough := func() -> bool: return player.state == Player.State.GRAPPLE and player.global_position.distance_to(anchor.global_position) <= dist
+	await _wait_until(close_enough, 3.0)
+	await _tap(&"grapple")
+	physics_frame.disconnect(on_tick)
+	player.grapple_finished.disconnect(on_finish)
+	var v0: Vector3 = out.v_release
+	out.flat_release = Vector2(v0.x, v0.z).length()
+	out.speed_release = v0.length()
+	var left := player.camera.yaw_basis() * Vector3.LEFT
+	var left0 := v0.dot(left)
+	if steer:
+		Input.action_press(&"move_left")
+	var last_vy := v0.y
+	for i in 30:
+		await physics_frame
+		var v := player.velocity
+		out.max_flat = maxf(out.max_flat, Vector2(v.x, v.z).length())
+		out.max_speed = maxf(out.max_speed, v.length())
+		if not player.is_on_floor():
+			out.vy_only_falls = out.vy_only_falls and v.y <= last_vy + 0.001
+		last_vy = v.y
+		out.steer_gain = maxf(out.steer_gain, v.dot(left) - left0)
+	out.state_after = player.state
+	_release_all()
+	await _wait_until(func() -> bool: return player.is_on_floor(), 3.0)
+	return out
+
+
+func test_wall_run() -> void:
+	_section("Wall-run + wall-jump")
+	var area := front_window.get_parent().get_parent().get_node("TraversalPlayground/BasicWallRun")
+	var face_x := (area.get_node("RunWall") as Node3D).global_position.x + 0.3 # the face the lanes run along
+	var lane := Vector3(face_x + 0.6, 0.05, -1.0) # 0.25 m off the wall; heading -Z the wall is on the left
+	var pivot := player.get_node("Visual/Pivot") as Node3D
+	var runs := []
+	var ends := []
+	var on_run := func(normal: Vector3) -> void: runs.append(normal)
+	var on_end := func(did_jump: bool) -> void: ends.append(did_jump)
+	player.wall_run_started.connect(on_run)
+	player.wall_run_finished.connect(on_end)
+
+	# Entering: sprint, jump alongside the tall wall, keep holding forward.
+	var entered := await _run_and_jump(lane, 0.0)
+	_check("sprint-jump alongside a tall wall, holding forward: wall-run starts", entered and player.last_action == &"wall_run"
+			and runs.size() == 1 and (runs[0] as Vector3).is_equal_approx(Vector3.RIGHT), "%s %s" % [player.last_action, runs])
+	_check("starts off the ground, in the jump", player.global_position.y > 0.5 and not player.is_on_floor(),
+			"feet at %.2f" % player.global_position.y)
+	# Holding forward, the run carries on along the wall at running speed.
+	var z0 := player.global_position.z
+	var slowest := INF
+	var widest := 0.0
+	var ticks := 0
+	while player.state == Player.State.WALL_RUN and ticks < 20:
+		await physics_frame
+		ticks += 1
+		slowest = minf(slowest, -player.velocity.z)
+		widest = maxf(widest, player.global_position.x - 0.35 - face_x)
+	var facing := (-player.global_basis.z).dot(Vector3.FORWARD)
+	_check("holding forward: runs along the wall at running speed, on the wall", ticks == 20 and slowest > settings.sprint_speed - 0.3
+			and z0 - player.global_position.z > 3.0 and widest <= player.sensor.wall_run_reach + 0.01 and facing > 0.95,
+			"%d ticks, slowest %.2f m/s, %.2f m along, widest gap %.2f m" % [ticks, slowest, z0 - player.global_position.z, widest])
+	_check("visual hook: body leans off the wall while running", pivot.rotation.z < -0.1, "roll %.2f" % pivot.rotation.z)
+	Input.action_press(&"move_left") # into the wall as well as along it
+	await _phys(6)
+	_check("steering into the wall as well keeps the run going", player.state == Player.State.WALL_RUN)
+	Input.action_release(&"move_left")
+	# Steering away drops off the wall with the speed it had.
+	var along := -player.velocity.z
+	Input.action_press(&"move_right")
+	await _phys(2)
+	_check("steering away drops off, keeping the speed along the wall", player.state == Player.State.MOVE
+			and player.last_action == &"wall_run_end" and ends == [false] and -player.velocity.z > along - 0.3
+			and not player.is_on_floor(), "%s, %.2f -> %.2f m/s" % [player.last_action, along, -player.velocity.z])
+	# Normal air movement from there: steering back into the same wall doesn't re-stick.
+	Input.action_release(&"move_right")
+	Input.action_press(&"move_left")
+	var landed := await _wait_until(func() -> bool: return player.is_on_floor(), 2.0)
+	_check("back to normal air movement: steers back to the wall without re-sticking, lands", landed
+			and runs.size() == 1 and player.state == Player.State.MOVE and player.global_position.x - 0.35 - face_x < 0.05,
+			"runs %d, gap %.2f" % [runs.size(), player.global_position.x - 0.35 - face_x])
+	_release_all()
+	await _phys(30)
+	_check("visual hook: upright again once off the wall", absf(pivot.rotation.z) < 0.03, "roll %.3f" % pivot.rotation.z)
+
+	# A run left alone ends by itself (here: slides down to the ground) and
+	# hands straight back to normal running.
+	runs.clear()
+	ends.clear()
+	entered = await _run_and_jump(lane, 0.0)
+	var run_ticks := 0
+	while player.state == Player.State.WALL_RUN and run_ticks < 120:
+		await physics_frame
+		run_ticks += 1
+	await _phys(10)
+	_check("a run left alone ends by itself within %.1f s" % player.wall_run_max_time, entered and ends == [false]
+			and run_ticks / 60.0 <= player.wall_run_max_time + 0.05, "%.2f s" % (run_ticks / 60.0))
+	_check("then normal movement: running on the ground at sprint speed", player.state == Player.State.MOVE
+			and player.is_on_floor() and absf(player.horizontal_speed() - settings.sprint_speed) < 0.3,
+			"%.2f m/s" % player.horizontal_speed())
+	_release_all()
+
+	# Invalid walls: too low, sloped, too slow, not steering along, running into it.
+	var slab_feet := Vector3(-30.0, 0.5, -15.0)
+	var from := slab_feet + Vector3.UP * 0.6
+	var raw := player.get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(from,
+			from + Vector3.RIGHT * (player.sensor.body_radius + player.sensor.wall_run_reach), 1))
+	_check("sensor: the 30-degree slab is in reach but rejected; the tall wall is accepted", not raw.is_empty()
+			and absf((raw.normal as Vector3).y - 0.5) < 0.01 and player.sensor.detect_run_wall(slab_feet, Vector3.RIGHT) == null
+			and player.sensor.detect_run_wall(Vector3(lane.x, 0.5, -15.0), Vector3.LEFT) != null)
+	for case in [{label = "low wall (1.2 m)", start = Vector3(-49.1, 0.05, -4.0), yaw = 0.0, sprint = true, forward = true},
+			{label = "30-degree slab", start = Vector3(-30.0, 0.05, -6.0), yaw = 0.0, sprint = true, forward = true},
+			{label = "tall wall at walking pace", start = lane, yaw = 0.0, sprint = false, forward = true},
+			{label = "tall wall without steering along it", start = lane, yaw = 0.0, sprint = true, forward = false},
+			{label = "running into the tall wall (60 degrees)", start = Vector3(-36.6, 0.05, -8.0), yaw = 60.0, sprint = true, forward = true}]:
+		runs.clear()
+		var stuck := await _run_and_jump(case.start, case.yaw, case.sprint, case.forward)
+		var down := await _wait_until(func() -> bool: return player.is_on_floor(), 2.0)
+		_check("no wall-run: %s" % case.label, not stuck and runs.is_empty() and down and player.state == Player.State.MOVE,
+				"%s, landed %s" % [player.last_action, down])
+		_release_all()
+
+	# Wall-jump: Space on the wall.
+	runs.clear()
+	ends.clear()
+	entered = await _run_and_jump(lane, 0.0)
+	await _phys(10)
+	Input.action_release(&"jump")
+	await _phys(1)
+	var tick_start := [Vector3.ZERO]
+	var at_jump := [Vector3.ZERO]
+	var on_tick := func() -> void: tick_start[0] = player.velocity
+	var on_jump := func(did_jump: bool) -> void:
+		if did_jump:
+			at_jump[0] = player.velocity
+	physics_frame.connect(on_tick)
+	player.wall_run_finished.connect(on_jump)
+	Input.action_press(&"jump") # held: the full height of a normal jump
+	var jumped := await _wait_until(func() -> bool: return at_jump[0] != Vector3.ZERO, 0.3)
+	physics_frame.disconnect(on_tick)
+	player.wall_run_finished.disconnect(on_jump)
+	var takeoff_y := player.global_position.y
+	var before: Vector3 = tick_start[0]
+	var after: Vector3 = at_jump[0]
+	_check("Space on the wall: wall-jump, straight back to normal movement", entered and jumped and ends == [true]
+			and player.state == Player.State.MOVE and player.last_action == &"wall_jump", str(ends))
+	_check("wall-jump keeps the speed along the wall", absf(-after.z - -before.z) < 0.01, "%.2f -> %.2f m/s" % [-before.z, -after.z])
+	_check("no launch: pushes off at %.1f m/s, rises like a normal jump" % player.wall_jump_push,
+			absf(after.x - player.wall_jump_push) < 0.01 and absf(after.y - settings.jump_velocity()) < 0.01,
+			"push %.2f, up %.2f" % [after.x, after.y])
+	# Immediate air control: steer straight back toward the wall.
+	Input.action_press(&"move_left")
+	await _phys(6)
+	_check("immediate air control after the wall-jump", after.x - player.velocity.x > 1.0,
+			"sideways %.2f -> %.2f m/s in 0.1 s" % [after.x, player.velocity.x])
+	var peak := takeoff_y
+	for i in 4:
+		peak = maxf(peak, player.global_position.y)
+		await physics_frame
+	var along_later := -player.velocity.z
+	while not player.is_on_floor() and player.velocity.y > 0.0:
+		peak = maxf(peak, player.global_position.y)
+		await physics_frame
+	_check("keeps useful momentum after the wall-jump", along_later > -before.z * 0.9, "%.2f of %.2f m/s along" % [along_later, -before.z])
+	_check("rises no higher than a normal jump", peak - takeoff_y <= settings.jump_height + 0.05,
+			"%.2f m (jump height %.2f)" % [peak - takeoff_y, settings.jump_height])
+	landed = await _wait_until(func() -> bool: return player.is_on_floor(), 2.0)
+	_check("lands normally; steering back didn't re-stick to that wall", landed and runs.size() == 1
+			and player.state == Player.State.MOVE, "runs %d" % runs.size())
+	_release_all()
+
+	# Wall on the right (running the other way): the camera stays on the open
+	# side, off the wall, with a slight roll away from it; normal again after.
+	var cam := player.camera
+	entered = await _run_and_jump(Vector3(lane.x, 0.05, -29.0), 180.0)
+	await _phys(30)
+	var cam_side := cam.camera.global_position.x - player.global_position.x
+	var up := cam.camera.global_basis.y
+	_check("wall on the right: camera moves to the open side, not into the wall", entered and player.state == Player.State.WALL_RUN
+			and cam_side > 0.2 and cam.boom_fraction > 0.9, "camera %.2f m off the body axis, boom %.2f" % [cam_side, cam.boom_fraction])
+	_check("camera rolls slightly away from the wall", up.x > 0.03 and up.x < 0.1, "up.x %.3f" % up.x)
+	await _wait_until(func() -> bool: return player.state == Player.State.MOVE, 2.0)
+	_release_all()
+	await _phys(60)
+	# (Standing against that wall now, the normal right shoulder meets it and the
+	# existing camera collision pulls in as it always has; only the wall-run
+	# adjustment itself is checked here.)
+	_check("camera wall-run framing removed after the run (shoulder and roll back to normal)",
+			absf(cam._shoulder - cam.shoulder_offset) < 0.01 and absf(cam.camera.rotation.z) < 0.005,
+			"shoulder %.3f, roll %.4f" % [cam._shoulder, cam.camera.rotation.z])
+	player.wall_run_started.disconnect(on_run)
+	player.wall_run_finished.disconnect(on_end)
+
+
+func test_wall_run_grapple() -> void:
+	_section("Wall-run + grapple")
+	var area := front_window.get_parent().get_parent().get_node("TraversalPlayground/BasicWallRun")
+	var anchor := area.get_node("AnchorEndTower") as GrappleAnchor
+	var face_x := (area.get_node("RunWall") as Node3D).global_position.x + 0.3
+	var events := []
+	var on_fired := func(_a: GrappleAnchor) -> void: events.append(&"fired")
+	var on_pull := func(_a: GrappleAnchor) -> void: events.append(&"pull")
+	var on_grapple_end := func(arrived: bool) -> void: events.append(&"arrived" if arrived else &"released")
+	var on_run := func(_n: Vector3) -> void: events.append(&"wall_run")
+	var on_run_end := func(jumped: bool) -> void: events.append(&"wall_jump" if jumped else &"wall_run_end")
+	player.grapple_fired.connect(on_fired)
+	player.grapple_started.connect(on_pull)
+	player.grapple_finished.connect(on_grapple_end)
+	player.wall_run_started.connect(on_run)
+	player.wall_run_finished.connect(on_run_end)
+
+	# Grapple alongside the wall, let go, steer to the wall: the run picks up the momentum.
+	await _place(Vector3(face_x + 0.75, 0.05, -3.0), 0.0) # pulled 0.4 m off the wall
+	_aim_at(anchor.global_position)
+	await _phys(3)
+	events.clear()
+	await _tap(&"grapple")
+	var pulling := func() -> bool: return player.state == Player.State.GRAPPLE and player.global_position.z < -10.0
+	await _wait_until(pulling, 3.0)
+	var tick_start := [Vector3.ZERO]
+	var at := {release = Vector3.INF, before_run = Vector3.INF}
+	var on_tick := func() -> void: tick_start[0] = player.velocity
+	var on_release := func(_arrived: bool) -> void:
+		at.release = player.velocity
+		at.pulled = tick_start[0]
+	var on_start := func(_n: Vector3) -> void: at.before_run = player.velocity
+	physics_frame.connect(on_tick)
+	player.grapple_finished.connect(on_release)
+	player.wall_run_started.connect(on_start)
+	await _tap(&"grapple")
+	Input.action_press(&"move_forward")
+	Input.action_press(&"move_left") # toward the wall
+	var ran := await _wait_until(func() -> bool: return player.state == Player.State.WALL_RUN, 1.0)
+	await physics_frame
+	var first_run_tick := player.velocity
+	physics_frame.disconnect(on_tick)
+	player.grapple_finished.disconnect(on_release)
+	player.wall_run_started.disconnect(on_start)
+	_check("grapple release keeps the pull's way, trimmed to what a body carries",
+			(at.release as Vector3).is_equal_approx(player.grapple.release_velocity(at.get("pulled", Vector3.ZERO))),
+			"%s -> %s" % [at.get("pulled"), at.release])
+	_check("grapple -> release -> steer to the wall: wall-run", ran and events.slice(0, 4) == [&"fired", &"pull", &"released", &"wall_run"],
+			str(events))
+	var entry_along := -(at.before_run as Vector3).z
+	_check("the run carries the grapple momentum (no boost, only the usual bleed)", entry_along > settings.sprint_speed + 2.5
+			and -first_run_tick.z <= entry_along + 0.01 and -first_run_tick.z > entry_along - 0.5,
+			"%.2f m/s arriving, %.2f m/s on the wall" % [entry_along, -first_run_tick.z])
+	_release_all()
+
+	# Wall-run, wall-jump, then grapple out of the jump.
+	events.clear()
+	var entered := await _run_and_jump(Vector3(face_x + 0.6, 0.05, -1.0), 0.0)
+	await _phys(8)
+	Input.action_release(&"jump")
+	await _tap(&"jump")
+	_aim_at(anchor.global_position)
+	await _phys(2)
+	var airborne := not player.is_on_floor() and player.state == Player.State.MOVE
+	await _tap(&"grapple")
+	await _wait_until(func() -> bool: return events.has(&"arrived") or events.has(&"released"), 4.0)
+	await _wait_until(func() -> bool: return player.is_on_floor(), 3.0)
+	await _phys(5)
+	_check("wall-jump -> grapple: fires from the air after the jump, pulls, arrives", entered and airborne
+			and events == [&"wall_run", &"wall_jump", &"fired", &"pull", &"arrived"], str(events))
+	_check("lands on the end tower", player.is_on_floor() and absf(player.global_position.y - 7.0) < 0.1, str(player.global_position))
+	_release_all()
+
+	# The grapple can also be fired straight from a wall-run.
+	events.clear()
+	entered = await _run_and_jump(Vector3(face_x + 0.6, 0.05, -1.0), 0.0)
+	await _phys(6)
+	_aim_at(anchor.global_position)
+	await _phys(2)
+	await _tap(&"grapple")
+	_check("grapple straight from a wall-run: leaves the wall, arrow away", entered and events.slice(0, 3) == [&"wall_run", &"wall_run_end", &"fired"]
+			and player.state in [Player.State.GRAPPLE_FIRE, Player.State.GRAPPLE], str(events))
+	_release_all()
+	player.grapple_fired.disconnect(on_fired)
+	player.grapple_started.disconnect(on_pull)
+	player.grapple_finished.disconnect(on_grapple_end)
+	player.wall_run_started.disconnect(on_run)
+	player.wall_run_finished.disconnect(on_run_end)
+
+
+func test_wall_run_hint() -> void:
+	_section("Wall-run debug readout")
+	var face_x := (front_window.get_parent().get_parent().get_node("TraversalPlayground/BasicWallRun/RunWall") as Node3D).global_position.x + 0.3
+	var label := root.get_node("Main/DebugHUD/Label") as Label
+	_check("the debug HUD turns the readout on", player.debug_wall_run_hint)
+	# Sprinting alongside the wall on the ground, steering along it: ready to jump.
+	await _place(Vector3(face_x + 0.6, 0.05, -1.0), 0.0)
+	Input.action_press(&"move_forward")
+	Input.action_press(&"sprint")
+	await _phys(20)
+	await _frames(2)
+	_check("sprinting alongside a runnable wall: WALL RUN READY (shown in the HUD)", player.wall_run_hint == "WALL RUN READY"
+			and label.text.contains("[WALL RUN READY]"), "'%s'" % player.wall_run_hint)
+	Input.action_press(&"jump")
+	await _wait_until(func() -> bool: return player.state == Player.State.WALL_RUN, 0.5)
+	await _phys(1)
+	_check("on the wall: WALL RUN", player.wall_run_hint == "WALL RUN", "'%s'" % player.wall_run_hint)
+	Input.action_release(&"jump")
+	await _phys(6)
+	await _tap(&"jump")
+	await _phys(1)
+	_check("Space off the wall: WALL JUMP", player.wall_run_hint == "WALL JUMP", "'%s'" % player.wall_run_hint)
+	_release_all()
+	await _wait_until(func() -> bool: return player.is_on_floor(), 2.0)
+	# Walking alongside it: named, with the reason it won't start.
+	await _place(Vector3(face_x + 0.6, 0.05, -1.0), 0.0)
+	Input.action_press(&"move_forward")
+	await _phys(20)
+	_check("walking alongside it: 'too slow along it'", player.wall_run_hint == "wall: too slow along it", "'%s'" % player.wall_run_hint)
+	# Sprinting a little too far out: in sight, but out of reach.
+	await _place(Vector3(face_x + 1.1, 0.05, -1.0), 0.0)
+	Input.action_press(&"move_forward")
+	Input.action_press(&"sprint")
+	await _phys(20)
+	_check("sprinting 0.75 m off the wall: 'get closer'", player.wall_run_hint == "wall: get closer", "'%s'" % player.wall_run_hint)
+	_release_all()
+	# Open ground: nothing shown.
+	await _place(Vector3(20, 0.05, 30), 0.0)
+	Input.action_press(&"move_forward")
+	await _phys(10)
+	await _frames(2)
+	_release_all()
+	_check("open ground: no readout", player.wall_run_hint == "" and not label.text.contains("["), "'%s'" % player.wall_run_hint)
+
+
+func test_playground() -> void:
+	_section("Traversal playground")
+	var pg := front_window.get_parent().get_parent().get_node("TraversalPlayground")
+	var sections := ["BasicWallRun", "WallJump", "WallRunGrapple", "WallRunWindow", "OpenTraversal"]
+	var starts := get_nodes_in_group(&"playground_start")
+	var anchors := pg.find_children("*", "Node3D", true, false).filter(func(n: Node) -> bool: return n is GrappleAnchor)
+	_check("five sections, each with a start marker", sections.all(func(s: String) -> bool: return pg.has_node(s))
+			and starts.size() == 5, "%d starts" % starts.size())
+	_check("playground grapple anchors in place and enabled", anchors.size() == 5
+			and anchors.all(func(a: GrappleAnchor) -> bool: return a.enabled), "%d anchors" % anchors.size())
+	# Debug keys 1-5 jump to the section starts.
+	await _place(Vector3(20, 0.05, 30), 0.0)
+	var key := InputEventKey.new()
+	key.keycode = KEY_3
+	key.physical_keycode = KEY_3
+	key.pressed = true
+	Input.parse_input_event(key)
+	await _frames(2)
+	key.pressed = false
+	Input.parse_input_event(key)
+	await _phys(8)
+	var start3 := pg.get_node("WallRunGrapple/Start3") as Node3D
+	_check("debug key 3 jumps to section 3's start", player.global_position.distance_to(start3.global_position) < 0.3
+			and player.last_action == &"section_3", "%s" % player.global_position)
+
+	# 1: the angled wall runs with the wall on the right.
+	var ran := await _run_and_jump(Vector3(-29.4, 0.05, 44.7), 15.0) # 4 m before the angled wall, in its lane
+	var right := player.global_basis.x
+	_check("1: angled wall - wall-run with the wall on the right", ran and player.wall_normal.dot(right) < -0.9,
+			"normal %s" % player.wall_normal)
+	_release_all()
+	await _wait_until(func() -> bool: return player.is_on_floor(), 2.0)
+
+	# 2: wall-run, wall-jump across, grab the rooftop no jump from the ground reaches.
+	var r := await _pg_route_walljump()
+	_check("2: wall-run -> wall-jump -> grab -> climb onto the 4 m rooftop", r.ran and r.jumped and r.grabbed
+			and r.on_floor and absf(r.pos.y - 4.0) < 0.1, "%s" % r)
+	await _place(Vector3(-52.5, 0.05, -60.0), 90.0) # facing the rooftop's side from the ground
+	Input.action_press(&"move_forward")
+	await _phys(20)
+	Input.action_press(&"jump")
+	await _phys(60)
+	_release_all()
+	await _wait_until(func() -> bool: return player.is_on_floor(), 2.0)
+	_check("2: a plain jump from the ground can't reach that rooftop", player.global_position.y < 0.1
+			and player.state == Player.State.MOVE, "%s %s" % [player.last_action, player.global_position])
+
+	# 3: ramp up, wall-run at height, grapple from the wall to the tall tower.
+	r = await _pg_route_grapple(pg.get_node("WallRunGrapple/G_Anchor") as GrappleAnchor)
+	_check("3: ramp -> wall-run at height -> grapple from the wall -> tower top", r.ran and r.fired_from_wall
+			and r.arrived and absf(r.pos.y - 14.0) < 0.1, "%s" % r)
+
+	# 4: ramp up, wall-run, wall-jump and steer in line, E through the upper window.
+	r = await _pg_route_window()
+	_check("4: ramp -> wall-run -> wall-jump -> E dives in through the upper window", r.ran and r.dove
+			and r.inside, "%s" % r)
+	var exit := await _pg_exit_window(pg.get_node("WallRunWindow/H_BeyondAnchor") as GrappleAnchor)
+	_check("4: the far window dives out high (airborne), tower beyond in grapple reach", exit.dove and exit.airborne
+			and exit.target_seen, "%s" % exit)
+
+	# 5: from deck B, wall-run across the 7 m gap (too far to jump) onto deck C.
+	await _place(Vector3(-6.0, 3.05, -69.9), -90.0)
+	Input.action_press(&"move_forward")
+	Input.action_press(&"sprint")
+	await _wait_until(func() -> bool: return player.global_position.x > -2.7, 3.0)
+	Input.action_press(&"jump")
+	ran = await _wait_until(func() -> bool: return player.state == Player.State.WALL_RUN, 0.6)
+	await _wait_until(func() -> bool: return player.state == Player.State.MOVE and player.is_on_floor(), 3.0)
+	_release_all()
+	_check("5: wall-run across the 7 m deck gap", ran and player.global_position.x > 4.5
+			and absf(player.global_position.y - 3.0) < 0.1, str(player.global_position))
+	# Leave the camera as later tests expect it (the routes above aimed it up).
+	player.camera.pitch = deg_to_rad(-12.0)
+	player.camera.yaw = 0.0
+
+
+## Section 2 route: sprint alongside the wall, wall-run, wall-jump across the
+## gap steering toward the rooftop, grab its edge and climb up.
+func _pg_route_walljump() -> Dictionary:
+	var out := {ran = false, jumped = false, grabbed = false, on_floor = false, pos = Vector3.ZERO}
+	await _place(Vector3(-51.6, 0.05, -37.0), 0.0)
+	Input.action_press(&"move_forward")
+	Input.action_press(&"sprint")
+	await _wait_until(func() -> bool: return player.global_position.z < -46.5, 3.0)
+	Input.action_press(&"jump")
+	out.ran = await _wait_until(func() -> bool: return player.state == Player.State.WALL_RUN, 0.6)
+	Input.action_release(&"jump")
+	await _phys(12)
+	Input.action_press(&"jump")
+	await _wait_until(func() -> bool: return player.state != Player.State.WALL_RUN, 0.2)
+	out.jumped = player.last_action == &"wall_jump"
+	Input.action_press(&"move_left") # toward the rooftop
+	out.grabbed = await _wait_until(func() -> bool: return player.state == Player.State.LEDGE_HANG, 2.0)
+	_release_all()
+	await _phys(10)
+	await _tap(&"jump") # climb up
+	await _wait_until(func() -> bool: return player.state == Player.State.MOVE, 2.0)
+	await _phys(10)
+	out.on_floor = player.is_on_floor()
+	out.pos = player.global_position
+	return out
+
+
+## Section 3 route: sprint up the ramp and off the deck into a wall-run, then
+## grapple to the tower from the wall.
+func _pg_route_grapple(anchor: GrappleAnchor) -> Dictionary:
+	var out := {ran = false, fired_from_wall = false, arrived = false, pos = Vector3.ZERO}
+	await _place(Vector3(-31.1, 0.05, -30.0), 0.0)
+	Input.action_press(&"move_forward")
+	Input.action_press(&"sprint")
+	await _wait_until(func() -> bool: return player.global_position.z < -51.6, 4.0)
+	Input.action_press(&"jump")
+	out.ran = await _wait_until(func() -> bool: return player.state == Player.State.WALL_RUN, 0.6)
+	await _phys(10)
+	_aim_at(anchor.global_position)
+	await _phys(2)
+	var on_fire := func(_a: GrappleAnchor) -> void: out.fired_from_wall = player.last_action == &"grapple_fire" and not player.is_on_floor()
+	var on_end := func(arrived: bool) -> void: out.arrived = arrived
+	player.grapple_fired.connect(on_fire)
+	player.grapple_finished.connect(on_end)
+	var was_running := player.state == Player.State.WALL_RUN
+	await _tap(&"grapple")
+	await _wait_until(func() -> bool: return player.state == Player.State.MOVE and player.last_action.begins_with("grapple_"), 4.0)
+	await _wait_until(func() -> bool: return player.is_on_floor(), 4.0)
+	await _phys(5)
+	player.grapple_fired.disconnect(on_fire)
+	player.grapple_finished.disconnect(on_end)
+	_release_all()
+	out.fired_from_wall = out.fired_from_wall and was_running
+	out.pos = player.global_position
+	return out
+
+
+## Section 4 route: sprint up the ramp and off the deck into a wall-run along
+## the wing, wall-jump about halfway (the push off the wall carries the player
+## in line with the window), hold forward, E through it.
+func _pg_route_window() -> Dictionary:
+	var out := {ran = false, dove = false, inside = false, pos = Vector3.ZERO}
+	var ids := _record_traversals()
+	await _place(Vector3(-56.1, 0.05, 48.5), 0.0)
+	Input.action_press(&"move_forward")
+	Input.action_press(&"sprint")
+	await _wait_until(func() -> bool: return player.global_position.z < 32.4, 4.0)
+	Input.action_press(&"jump")
+	out.ran = await _wait_until(func() -> bool: return player.state == Player.State.WALL_RUN, 0.6)
+	Input.action_release(&"jump")
+	await _wait_until(func() -> bool: return player.global_position.z < 26.5, 1.0)
+	Input.action_press(&"jump") # wall-jump
+	await _wait_until(func() -> bool: return player.prompt.hint_text() != "", 1.0)
+	await _tap(&"traverse")
+	await _wait_until(func() -> bool: return ids.has(&"window_dive") and player.state == Player.State.MOVE, 2.0)
+	_release_all()
+	await _phys(10)
+	_stop_recording()
+	out.dove = ids.has(&"window_dive")
+	out.pos = player.global_position
+	out.inside = player.is_on_floor() and absf(out.pos.y - 3.0) < 0.1 and out.pos.z > 14.3 and out.pos.z < 18.7
+	return out
+
+
+## Section 4, the way out: E at the far window from inside the room (a high
+## window: the dive ends in the air), with the tower beyond targeted.
+func _pg_exit_window(anchor: GrappleAnchor) -> Dictionary:
+	var out := {dove = false, airborne = false, target_seen = false}
+	await _place(Vector3(-53.8, 3.05, 16.5), 0.0)
+	_aim_at(anchor.global_position)
+	await _tap(&"traverse")
+	out.dove = await _wait_until(func() -> bool: return player.state == Player.State.TRAVERSAL, 1.0)
+	await _wait_until(func() -> bool: return player.state != Player.State.TRAVERSAL, 2.0)
+	await _phys(2) # (is_on_floor() only updates once normal movement moves the body again)
+	out.airborne = not player.is_on_floor() and player.global_position.y > 2.0
+	_aim_at(anchor.global_position)
+	await _phys(2)
+	out.target_seen = player.grapple.target == anchor
+	_release_all()
+	await _wait_until(func() -> bool: return player.is_on_floor(), 3.0)
+	return out
+
+
+## Sprints (or walks) forward from `start` facing `yaw` degrees, then jumps
+## holding Space; `forward` false lets go of forward at the jump. True if a
+## wall-run starts within half a second.
+func _run_and_jump(start: Vector3, yaw: float, sprint := true, forward := true) -> bool:
+	await _place(start, yaw)
+	Input.action_press(&"move_forward")
+	if sprint:
+		Input.action_press(&"sprint")
+	await _phys(18)
+	Input.action_press(&"jump")
+	if not forward:
+		Input.action_release(&"move_forward")
+	return await _wait_until(func() -> bool: return player.state == Player.State.WALL_RUN, 0.5)
 
 
 ## World-space ends of the drawn grapple cable: [player end, far end].
@@ -1603,10 +2211,10 @@ func test_neutral_stance() -> void:
 
 ## Upper arm angle from straight down, in degrees (rest or current pose).
 func _arm_angle(skel: Skeleton3D, side: String, rest: bool) -> float:
-	var get := func(bone: String) -> Vector3:
+	var joint := func(bone: String) -> Vector3:
 		var i := skel.find_bone(bone + side)
 		return (skel.get_bone_global_rest(i) if rest else skel.get_bone_global_pose(i)).origin
-	return rad_to_deg((get.call("joint_forearm") - get.call("joint_upperarm")).angle_to(Vector3.DOWN))
+	return rad_to_deg((joint.call("joint_forearm") - joint.call("joint_upperarm")).angle_to(Vector3.DOWN))
 
 
 ## World AABB of the named MeshInstance3D (its BoneAttachment3D parent shares
@@ -1733,8 +2341,12 @@ func _release_all() -> void:
 		Input.action_release(a)
 
 
-## Sends a real key event (reaches _input handlers like a keyboard would).
+## Sends a real key event, or mouse button event for mouse-bound actions
+## (reaches _input handlers like a keyboard / mouse would).
 func _key_event(action: StringName, pressed: bool) -> void:
+	if MOUSE_FOR.has(action):
+		_mouse_button(MOUSE_FOR[action], pressed)
+		return
 	var event := InputEventKey.new()
 	event.physical_keycode = KEY_FOR[action]
 	event.pressed = pressed

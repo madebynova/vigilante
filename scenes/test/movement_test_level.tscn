@@ -1,8 +1,8 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://bfmlrh7j8a0rg"]
 
-[ext_resource type="Script" path="res://scripts/level/greybox_block.gd" id="1_7j4a6"]
-[ext_resource type="Script" path="res://scripts/parkour/traversal_window.gd" id="2_e5i2m"]
-[ext_resource type="Script" path="res://scripts/parkour/grapple_anchor.gd" id="3_grapple"]
+[ext_resource type="Script" uid="uid://b2ric8xfif10b" path="res://scripts/level/greybox_block.gd" id="1_7j4a6"]
+[ext_resource type="Script" uid="uid://cebar4evlx253" path="res://scripts/parkour/traversal_window.gd" id="2_e5i2m"]
+[ext_resource type="Script" uid="uid://iajd1k6pu820" path="res://scripts/parkour/grapple_anchor.gd" id="3_grapple"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_j0u5q"]
 sky_top_color = Color(0.36, 0.5, 0.72, 1)
@@ -27,6 +27,18 @@ size = Vector3(4, 2.8, 17)
 size = Vector3(4, 2.8, 10)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_penthouse"]
+size = Vector3(4, 2.8, 10)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_h_entrywindow"]
+size = Vector3(8, 4, 10)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_h_exitwindow"]
+size = Vector3(6, 4, 10)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_ot_housedivewindow"]
+size = Vector3(4, 2.8, 10)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_ot_housesidewindow"]
 size = Vector3(4, 2.8, 10)
 
 [node name="MovementTestLevel" type="Node3D" unique_id=487225015]
@@ -326,92 +338,558 @@ color = Color(0.35, 0.52, 0.78, 1)
 [node name="PlayerSpawn" type="Marker3D" parent="." unique_id=1239915504]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.05, 10)
 
-[node name="GrappleTestArea" type="Node3D" parent="."]
+[node name="GrappleTestArea" type="Node3D" parent="." unique_id=844390248]
 
-[node name="TowerA" type="StaticBody3D" parent="GrappleTestArea"]
+[node name="TowerA" type="StaticBody3D" parent="GrappleTestArea" unique_id=1686239084]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30, 5, -24)
 script = ExtResource("1_7j4a6")
 size = Vector3(10, 10, 8)
 color = Color(0.78, 0.72, 0.62, 1)
 
-[node name="Penthouse_FrontL" type="StaticBody3D" parent="GrappleTestArea"]
+[node name="Penthouse_FrontL" type="StaticBody3D" parent="GrappleTestArea" unique_id=1506961340]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 28.6, 11.6, -27.85)
 script = ExtResource("1_7j4a6")
 size = Vector3(1.2, 3.2, 0.3)
 color = Color(0.78, 0.72, 0.62, 1)
 
-[node name="Penthouse_FrontR" type="StaticBody3D" parent="GrappleTestArea"]
+[node name="Penthouse_FrontR" type="StaticBody3D" parent="GrappleTestArea" unique_id=522619748]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 31.4, 11.6, -27.85)
 script = ExtResource("1_7j4a6")
 size = Vector3(1.2, 3.2, 0.3)
 color = Color(0.78, 0.72, 0.62, 1)
 
-[node name="Penthouse_Sill" type="StaticBody3D" parent="GrappleTestArea"]
+[node name="Penthouse_Sill" type="StaticBody3D" parent="GrappleTestArea" unique_id=248840151]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30, 10.45, -27.85)
 script = ExtResource("1_7j4a6")
 size = Vector3(1.6, 0.9, 0.3)
 color = Color(0.96, 0.82, 0.3, 1)
 
-[node name="Penthouse_Header" type="StaticBody3D" parent="GrappleTestArea"]
+[node name="Penthouse_Header" type="StaticBody3D" parent="GrappleTestArea" unique_id=223676331]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30, 12.65, -27.85)
 script = ExtResource("1_7j4a6")
 size = Vector3(1.6, 1.1, 0.3)
 color = Color(0.96, 0.82, 0.3, 1)
 
-[node name="Penthouse_SideL" type="StaticBody3D" parent="GrappleTestArea"]
+[node name="Penthouse_SideL" type="StaticBody3D" parent="GrappleTestArea" unique_id=575788859]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 28.15, 11.6, -26.1)
 script = ExtResource("1_7j4a6")
 size = Vector3(0.3, 3.2, 3.2)
 color = Color(0.78, 0.72, 0.62, 1)
 
-[node name="Penthouse_SideR" type="StaticBody3D" parent="GrappleTestArea"]
+[node name="Penthouse_SideR" type="StaticBody3D" parent="GrappleTestArea" unique_id=646163296]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 31.85, 11.6, -26.1)
 script = ExtResource("1_7j4a6")
 size = Vector3(0.3, 3.2, 3.2)
 color = Color(0.78, 0.72, 0.62, 1)
 
-[node name="Penthouse_Roof" type="StaticBody3D" parent="GrappleTestArea"]
+[node name="Penthouse_Roof" type="StaticBody3D" parent="GrappleTestArea" unique_id=372566375]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30, 13.35, -26.25)
 script = ExtResource("1_7j4a6")
 size = Vector3(4, 0.3, 3.5)
 color = Color(0.78, 0.72, 0.62, 1)
 
-[node name="PenthouseWindow" type="Area3D" parent="GrappleTestArea"]
+[node name="PenthouseWindow" type="Area3D" parent="GrappleTestArea" unique_id=1399859145]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30, 10.9, -27.85)
 collision_layer = 0
 collision_mask = 2
 monitorable = false
 script = ExtResource("2_e5i2m")
 
-[node name="ApproachZone" type="CollisionShape3D" parent="GrappleTestArea/PenthouseWindow"]
+[node name="ApproachZone" type="CollisionShape3D" parent="GrappleTestArea/PenthouseWindow" unique_id=1029303134]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
 shape = SubResource("BoxShape3D_penthouse")
 
-[node name="TowerB" type="StaticBody3D" parent="GrappleTestArea"]
+[node name="TowerB" type="StaticBody3D" parent="GrappleTestArea" unique_id=1683782419]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30, 4, -44)
 script = ExtResource("1_7j4a6")
 size = Vector3(10, 8, 8)
 color = Color(0.3, 0.62, 0.64, 1)
 
-[node name="AnchorTowerB" type="Node3D" parent="GrappleTestArea"]
+[node name="AnchorTowerB" type="Node3D" parent="GrappleTestArea" unique_id=713018060]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30, 8.5, -40.4)
 script = ExtResource("3_grapple")
 
-[node name="AnchorTowerA" type="Node3D" parent="GrappleTestArea"]
+[node name="AnchorTowerA" type="Node3D" parent="GrappleTestArea" unique_id=1428301503]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 26.5, 10.5, -27.6)
 script = ExtResource("3_grapple")
 
-[node name="RampToTowerA" type="StaticBody3D" parent="GrappleTestArea"]
-transform = Transform3D(1, 0, 0, 0, 0.9417419, -0.3363364, 0, 0.3363364, 0.9417419, 36.5, 4.8587387, -6.0504505)
+[node name="RampToTowerA" type="StaticBody3D" parent="GrappleTestArea" unique_id=1242985071]
+transform = Transform3D(1, 0, 0, 0, 0.9417419, -0.3363364, 0, 0.3363364, 0.9417419, 36.5, 4.858739, -6.0504503)
 script = ExtResource("1_7j4a6")
 size = Vector3(3, 0.3, 29.732138)
 color = Color(0.42, 0.68, 0.4, 1)
 
-[node name="RampLanding" type="StaticBody3D" parent="GrappleTestArea"]
+[node name="RampLanding" type="StaticBody3D" parent="GrappleTestArea" unique_id=562356251]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 36.5, 5, -22)
 script = ExtResource("1_7j4a6")
 size = Vector3(3, 10, 4)
 color = Color(0.3, 0.62, 0.64, 1)
 
-[node name="GrappleTestStart" type="Marker3D" parent="GrappleTestArea"]
+[node name="GrappleTestStart" type="Marker3D" parent="GrappleTestArea" unique_id=909139220]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30, 10.05, -21.5)
+
+[node name="TraversalPlayground" type="Node3D" parent="." unique_id=1176933030]
+
+[node name="BasicWallRun" type="Node3D" parent="TraversalPlayground" unique_id=2019194277]
+
+[node name="RunWall" type="StaticBody3D" parent="TraversalPlayground/BasicWallRun" unique_id=1519803454]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -40, 3.5, -15)
+script = ExtResource("1_7j4a6")
+size = Vector3(0.6, 7, 30)
+color = Color(0.72, 0.45, 0.3, 1)
+
+[node name="EndTower" type="StaticBody3D" parent="TraversalPlayground/BasicWallRun" unique_id=1921383811]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -39, 3.5, -36)
+script = ExtResource("1_7j4a6")
+size = Vector3(4, 7, 4)
+color = Color(0.3, 0.62, 0.64, 1)
+
+[node name="AnchorEndTower" type="Node3D" parent="TraversalPlayground/BasicWallRun" unique_id=529242504]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -38.95, 7.5, -34.4)
+script = ExtResource("3_grapple")
+
+[node name="LowWall" type="StaticBody3D" parent="TraversalPlayground/BasicWallRun" unique_id=1326894936]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -50, 0.6, -15)
+script = ExtResource("1_7j4a6")
+size = Vector3(0.6, 1.2, 24)
+color = Color(0.8, 0.7, 0.35, 1)
+
+[node name="SteepSlab" type="StaticBody3D" parent="TraversalPlayground/BasicWallRun" unique_id=1814313021]
+transform = Transform3D(0.8660254, 0.5, 0, -0.5, 0.8660254, 0, 0, 0, 1, -27.99, 2.915, -15)
+script = ExtResource("1_7j4a6")
+size = Vector3(0.6, 5, 16)
+color = Color(0.55, 0.5, 0.7, 1)
+
+[node name="AngledWall" type="StaticBody3D" parent="TraversalPlayground/BasicWallRun" unique_id=217224509]
+transform = Transform3D(0.9659258, 0, 0.258819, 0, 1, 0, -0.258819, 0, 0.9659258, -33, 3.5, 28)
+script = ExtResource("1_7j4a6")
+size = Vector3(0.6, 7, 26)
+color = Color(0.72, 0.45, 0.3, 1)
+
+[node name="Start1" type="Marker3D" parent="TraversalPlayground/BasicWallRun" unique_id=1769067316 groups=["playground_start"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -39.1, 0.05, 12)
+
+[node name="Sign" type="Label3D" parent="TraversalPlayground/BasicWallRun" unique_id=44033956]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -35.6, 3.5, 5)
+pixel_size = 0.006
+billboard = 1
+modulate = Color(1, 0.97, 0.88, 1)
+text = "1  BASIC WALL-RUN
+brown walls are runnable
+sprint alongside, jump, hold forward"
+font_size = 72
+outline_size = 18
+
+[node name="WallJump" type="Node3D" parent="TraversalPlayground" unique_id=1261552219]
+
+[node name="WJ_Wall" type="StaticBody3D" parent="TraversalPlayground/WallJump" unique_id=497603787]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -50.7, 4, -61)
+script = ExtResource("1_7j4a6")
+size = Vector3(0.6, 8, 30)
+color = Color(0.72, 0.45, 0.3, 1)
+
+[node name="WJ_Rooftop" type="StaticBody3D" parent="TraversalPlayground/WallJump" unique_id=1546621309]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -56.5, 2, -61)
+script = ExtResource("1_7j4a6")
+size = Vector3(5, 4, 14)
+color = Color(0.45, 0.55, 0.72, 1)
+
+[node name="WJ_HighBlock" type="StaticBody3D" parent="TraversalPlayground/WallJump" unique_id=513719242]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -56, 4, -71)
+script = ExtResource("1_7j4a6")
+size = Vector3(4, 8, 6)
+color = Color(0.45, 0.55, 0.72, 1)
+
+[node name="Start2" type="Marker3D" parent="TraversalPlayground/WallJump" unique_id=1893799140 groups=["playground_start"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -51.6, 0.05, -37)
+
+[node name="Sign" type="Label3D" parent="TraversalPlayground/WallJump" unique_id=1729612271]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -47.8, 3.5, -44)
+pixel_size = 0.006
+billboard = 1
+modulate = Color(1, 0.97, 0.88, 1)
+text = "2  WALL-RUN -> WALL-JUMP
+run the wall, Space across to the rooftop"
+font_size = 72
+outline_size = 18
+
+[node name="WallRunGrapple" type="Node3D" parent="TraversalPlayground" unique_id=1197480610]
+
+[node name="G_Ramp" type="StaticBody3D" parent="TraversalPlayground/WallRunGrapple" unique_id=764265757]
+transform = Transform3D(1, 0, 0, 0, 0.9397934, -0.3417431, 0, 0.3417431, 0.9397934, -29.7, 1.8403904, -41.5)
+script = ExtResource("1_7j4a6")
+size = Vector3(4, 0.3, 11.7046995)
+color = Color(0.42, 0.68, 0.4, 1)
+
+[node name="G_Deck" type="StaticBody3D" parent="TraversalPlayground/WallRunGrapple" unique_id=1532247685]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -29.7, 2, -49.5)
+script = ExtResource("1_7j4a6")
+size = Vector3(4, 4, 5)
+color = Color(0.45, 0.55, 0.72, 1)
+
+[node name="G_Wall" type="StaticBody3D" parent="TraversalPlayground/WallRunGrapple" unique_id=2022931402]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -32, 5, -65)
+script = ExtResource("1_7j4a6")
+size = Vector3(0.6, 10, 28)
+color = Color(0.72, 0.45, 0.3, 1)
+
+[node name="G_LowRoof" type="StaticBody3D" parent="TraversalPlayground/WallRunGrapple" unique_id=1447453952]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -26.2, 1.5, -60)
+script = ExtResource("1_7j4a6")
+size = Vector3(5, 3, 6)
+color = Color(0.45, 0.55, 0.72, 1)
+
+[node name="G_Tower" type="StaticBody3D" parent="TraversalPlayground/WallRunGrapple" unique_id=177852475]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -23.2, 7, -69)
+script = ExtResource("1_7j4a6")
+size = Vector3(6, 14, 6)
+color = Color(0.3, 0.62, 0.64, 1)
+
+[node name="G_Anchor" type="Node3D" parent="TraversalPlayground/WallRunGrapple" unique_id=2008681886]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -25.8, 14.5, -66.4)
+script = ExtResource("3_grapple")
+
+[node name="Start3" type="Marker3D" parent="TraversalPlayground/WallRunGrapple" unique_id=426988239 groups=["playground_start"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -29.7, 0.05, -30)
+
+[node name="Sign" type="Label3D" parent="TraversalPlayground/WallRunGrapple" unique_id=540059269]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -25.6, 3.5, -37)
+pixel_size = 0.006
+billboard = 1
+modulate = Color(1, 0.97, 0.88, 1)
+text = "3  WALL-RUN -> GRAPPLE
+ramp up, run the wall, then choose"
+font_size = 72
+outline_size = 18
+
+[node name="WallRunWindow" type="Node3D" parent="TraversalPlayground" unique_id=1805870534]
+
+[node name="H_Ramp" type="StaticBody3D" parent="TraversalPlayground/WallRunWindow" unique_id=900427631]
+transform = Transform3D(1, 0, 0, 0, 0.9363292, -0.3511234, 0, 0.3511234, 0.9363292, -54.7, 1.3397999, 41)
+script = ExtResource("1_7j4a6")
+size = Vector3(4, 0.3, 8.5440035)
+color = Color(0.42, 0.68, 0.4, 1)
+
+[node name="H_Deck" type="StaticBody3D" parent="TraversalPlayground/WallRunWindow" unique_id=1548498275]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -54.7, 1.5, 34.5)
+script = ExtResource("1_7j4a6")
+size = Vector3(4, 3, 5)
+color = Color(0.45, 0.55, 0.72, 1)
+
+[node name="H_Wing" type="StaticBody3D" parent="TraversalPlayground/WallRunWindow" unique_id=1564144810]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -57, 3.5, 26.75)
+script = ExtResource("1_7j4a6")
+size = Vector3(0.6, 7, 15.5)
+color = Color(0.72, 0.45, 0.3, 1)
+
+[node name="H_Base" type="StaticBody3D" parent="TraversalPlayground/WallRunWindow" unique_id=2136093925]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -53.2, 1.5, 16.5)
+script = ExtResource("1_7j4a6")
+size = Vector3(7, 3, 5)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="H_North_L" type="StaticBody3D" parent="TraversalPlayground/WallRunWindow" unique_id=469782193]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -55.65, 4.8, 18.85)
+script = ExtResource("1_7j4a6")
+size = Vector3(2.1, 3.6, 0.3)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="H_North_R" type="StaticBody3D" parent="TraversalPlayground/WallRunWindow" unique_id=467683093]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -51.35, 4.8, 18.85)
+script = ExtResource("1_7j4a6")
+size = Vector3(3.3, 3.6, 0.3)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="H_North_Sill" type="StaticBody3D" parent="TraversalPlayground/WallRunWindow" unique_id=971854229]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -53.8, 3.45, 18.85)
+script = ExtResource("1_7j4a6")
+size = Vector3(1.6, 0.9, 0.3)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="H_North_Header" type="StaticBody3D" parent="TraversalPlayground/WallRunWindow" unique_id=1861846197]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -53.8, 5.85, 18.85)
+script = ExtResource("1_7j4a6")
+size = Vector3(1.6, 1.5, 0.3)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="H_South_L" type="StaticBody3D" parent="TraversalPlayground/WallRunWindow" unique_id=756356405]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -55.65, 4.8, 14.15)
+script = ExtResource("1_7j4a6")
+size = Vector3(2.1, 3.6, 0.3)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="H_South_R" type="StaticBody3D" parent="TraversalPlayground/WallRunWindow" unique_id=326988460]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -51.35, 4.8, 14.15)
+script = ExtResource("1_7j4a6")
+size = Vector3(3.3, 3.6, 0.3)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="H_South_Sill" type="StaticBody3D" parent="TraversalPlayground/WallRunWindow" unique_id=491640274]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -53.8, 3.45, 14.15)
+script = ExtResource("1_7j4a6")
+size = Vector3(1.6, 0.9, 0.3)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="H_South_Header" type="StaticBody3D" parent="TraversalPlayground/WallRunWindow" unique_id=1802848925]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -53.8, 5.85, 14.15)
+script = ExtResource("1_7j4a6")
+size = Vector3(1.6, 1.5, 0.3)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="H_West" type="StaticBody3D" parent="TraversalPlayground/WallRunWindow" unique_id=168966604]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -56.55, 4.8, 16.5)
+script = ExtResource("1_7j4a6")
+size = Vector3(0.3, 3.6, 4.4)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="H_East" type="StaticBody3D" parent="TraversalPlayground/WallRunWindow" unique_id=1276414695]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -49.85, 4.8, 16.5)
+script = ExtResource("1_7j4a6")
+size = Vector3(0.3, 3.6, 4.4)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="H_Roof" type="StaticBody3D" parent="TraversalPlayground/WallRunWindow" unique_id=732315772]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -53.2, 6.75, 16.5)
+script = ExtResource("1_7j4a6")
+size = Vector3(7, 0.3, 5)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="H_EntryWindow" type="Area3D" parent="TraversalPlayground/WallRunWindow" unique_id=1756232532]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -53.8, 3.9, 18.85)
+collision_layer = 0
+collision_mask = 2
+monitorable = false
+script = ExtResource("2_e5i2m")
+
+[node name="ApproachZone" type="CollisionShape3D" parent="TraversalPlayground/WallRunWindow/H_EntryWindow" unique_id=2116284786]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
+shape = SubResource("BoxShape3D_h_entrywindow")
+
+[node name="H_ExitWindow" type="Area3D" parent="TraversalPlayground/WallRunWindow" unique_id=1778584149]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -53.8, 3.9, 14.15)
+collision_layer = 0
+collision_mask = 2
+monitorable = false
+script = ExtResource("2_e5i2m")
+
+[node name="ApproachZone" type="CollisionShape3D" parent="TraversalPlayground/WallRunWindow/H_ExitWindow" unique_id=115838777]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
+shape = SubResource("BoxShape3D_h_exitwindow")
+
+[node name="H_Beyond" type="StaticBody3D" parent="TraversalPlayground/WallRunWindow" unique_id=1193840074]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -54.5, 5, 2.5)
+script = ExtResource("1_7j4a6")
+size = Vector3(7, 10, 5)
+color = Color(0.3, 0.62, 0.64, 1)
+
+[node name="H_BeyondAnchor" type="Node3D" parent="TraversalPlayground/WallRunWindow" unique_id=1474760824]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -53.8, 10.5, 4.6)
+script = ExtResource("3_grapple")
+
+[node name="Start4" type="Marker3D" parent="TraversalPlayground/WallRunWindow" unique_id=697354715 groups=["playground_start"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -54.7, 0.05, 48.5)
+
+[node name="Sign" type="Label3D" parent="TraversalPlayground/WallRunWindow" unique_id=1176991406]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -50.6, 3.5, 41.5)
+pixel_size = 0.006
+billboard = 1
+modulate = Color(1, 0.97, 0.88, 1)
+text = "4  WALL-RUN -> WINDOW
+ramp up, run the wall, E through the window"
+font_size = 72
+outline_size = 18
+
+[node name="OpenTraversal" type="Node3D" parent="TraversalPlayground" unique_id=1285184538]
+
+[node name="OT_RunWallLong" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=587869545]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 3.5, -64)
+script = ExtResource("1_7j4a6")
+size = Vector3(22, 7, 0.6)
+color = Color(0.72, 0.45, 0.3, 1)
+
+[node name="OT_LowWallA" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=1261676064]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -11, 0.5, -60.8)
+script = ExtResource("1_7j4a6")
+size = Vector3(3, 1, 0.4)
+color = Color(0.8, 0.7, 0.35, 1)
+
+[node name="OT_LowWallB" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=150269486]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 0.6, -61)
+script = ExtResource("1_7j4a6")
+size = Vector3(3, 1.2, 0.35)
+color = Color(0.8, 0.7, 0.35, 1)
+
+[node name="OT_Step1" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=1996132593]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0.6, -61.5)
+script = ExtResource("1_7j4a6")
+size = Vector3(3, 1.2, 3)
+color = Color(0.45, 0.55, 0.72, 1)
+
+[node name="OT_Step2" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=730713148]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13.5, 1.1, -61.5)
+script = ExtResource("1_7j4a6")
+size = Vector3(3, 2.2, 3)
+color = Color(0.45, 0.55, 0.72, 1)
+
+[node name="OT_Step3" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=554523940]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 17.5, 1.6, -61.5)
+script = ExtResource("1_7j4a6")
+size = Vector3(3, 3.2, 3)
+color = Color(0.45, 0.55, 0.72, 1)
+
+[node name="OT_GapWall" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=19468062]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 3.5, -69)
+script = ExtResource("1_7j4a6")
+size = Vector3(18, 7, 0.6)
+color = Color(0.72, 0.45, 0.3, 1)
+
+[node name="OT_DeckA" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=1844418863]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -11.5, 1.5, -71.8)
+script = ExtResource("1_7j4a6")
+size = Vector3(5, 3, 5)
+color = Color(0.45, 0.55, 0.72, 1)
+
+[node name="OT_DeckB" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=878123836]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.5, 1.5, -71.8)
+script = ExtResource("1_7j4a6")
+size = Vector3(4, 3, 5)
+color = Color(0.45, 0.55, 0.72, 1)
+
+[node name="OT_DeckC" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=526654445]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.75, 1.5, -71.8)
+script = ExtResource("1_7j4a6")
+size = Vector3(4.5, 3, 5)
+color = Color(0.45, 0.55, 0.72, 1)
+
+[node name="OT_Ramp" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=1697124733]
+transform = Transform3D(1, 0, 0, 0, 0.8661856, 0.4997225, 0, -0.4997225, 0.8661856, -11.5, 1.3268269, -76.9)
+script = ExtResource("1_7j4a6")
+size = Vector3(4, 0.3, 6.0033326)
+color = Color(0.42, 0.68, 0.4, 1)
+
+[node name="OT_Crate" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=910988260]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, -77)
+script = ExtResource("1_7j4a6")
+size = Vector3(2.5, 1, 2)
+color = Color(0.45, 0.55, 0.72, 1)
+
+[node name="OT_HouseN_L" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=1254398622]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 13.1, 1.8, -66.15)
+script = ExtResource("1_7j4a6")
+size = Vector3(2.2, 3.6, 0.3)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="OT_HouseN_R" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=1887408547]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 16.9, 1.8, -66.15)
+script = ExtResource("1_7j4a6")
+size = Vector3(2.2, 3.6, 0.3)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="OT_HouseN_Sill" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=451424085]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15, 0.45, -66.15)
+script = ExtResource("1_7j4a6")
+size = Vector3(1.6, 0.9, 0.3)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="OT_HouseN_Header" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=151997030]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15, 2.85, -66.15)
+script = ExtResource("1_7j4a6")
+size = Vector3(1.6, 1.5, 0.3)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="OT_HouseS" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=882553190]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15, 1.8, -70.85)
+script = ExtResource("1_7j4a6")
+size = Vector3(6, 3.6, 0.3)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="OT_HouseW" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=2107536422]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 12.15, 1.8, -68.5)
+script = ExtResource("1_7j4a6")
+size = Vector3(0.3, 3.6, 4.4)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="OT_HouseE_N" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=476378428]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 17.85, 1.8, -67)
+script = ExtResource("1_7j4a6")
+size = Vector3(0.3, 3.6, 1.4)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="OT_HouseE_S" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=1845737072]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 17.85, 1.8, -70)
+script = ExtResource("1_7j4a6")
+size = Vector3(0.3, 3.6, 1.4)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="OT_HouseE_Sill" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=646975665]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 17.85, 0.45, -68.5)
+script = ExtResource("1_7j4a6")
+size = Vector3(0.3, 0.9, 1.6)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="OT_HouseE_Header" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=1181076693]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 17.85, 2.85, -68.5)
+script = ExtResource("1_7j4a6")
+size = Vector3(0.3, 1.5, 1.6)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="OT_HouseRoof" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=1237708783]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15, 3.75, -68.5)
+script = ExtResource("1_7j4a6")
+size = Vector3(6, 0.3, 5)
+color = Color(0.66, 0.64, 0.6, 1)
+
+[node name="OT_HouseDiveWindow" type="Area3D" parent="TraversalPlayground/OpenTraversal" unique_id=1858641090]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15, 0.9, -66.15)
+collision_layer = 0
+collision_mask = 2
+monitorable = false
+script = ExtResource("2_e5i2m")
+
+[node name="ApproachZone" type="CollisionShape3D" parent="TraversalPlayground/OpenTraversal/OT_HouseDiveWindow" unique_id=2138634742]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
+shape = SubResource("BoxShape3D_ot_housedivewindow")
+
+[node name="OT_HouseSideWindow" type="Area3D" parent="TraversalPlayground/OpenTraversal" unique_id=938379590]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, 17.85, 0.9, -68.5)
+collision_layer = 0
+collision_mask = 2
+monitorable = false
+script = ExtResource("2_e5i2m")
+dive_window = false
+
+[node name="ApproachZone" type="CollisionShape3D" parent="TraversalPlayground/OpenTraversal/OT_HouseSideWindow" unique_id=1498236908]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
+shape = SubResource("BoxShape3D_ot_housesidewindow")
+
+[node name="OT_Tower" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=187684267]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14.5, 6, -76.5)
+script = ExtResource("1_7j4a6")
+size = Vector3(5, 12, 5)
+color = Color(0.3, 0.62, 0.64, 1)
+
+[node name="OT_TowerAnchor" type="Node3D" parent="TraversalPlayground/OpenTraversal" unique_id=253189799]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 14.5, 12.5, -74.4)
+script = ExtResource("3_grapple")
+
+[node name="OT_Pillar" type="StaticBody3D" parent="TraversalPlayground/OpenTraversal" unique_id=1376459687]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 4, -77.5)
+script = ExtResource("1_7j4a6")
+size = Vector3(2.5, 8, 2.5)
+color = Color(0.3, 0.62, 0.64, 1)
+
+[node name="OT_PillarAnchor" type="Node3D" parent="TraversalPlayground/OpenTraversal" unique_id=1827180101]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 8.5, -76.6)
+script = ExtResource("3_grapple")
+
+[node name="Start5" type="Marker3D" parent="TraversalPlayground/OpenTraversal" unique_id=1991681833 groups=["playground_start"]]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -10, 0.05, -57)
+
+[node name="Sign" type="Label3D" parent="TraversalPlayground/OpenTraversal" unique_id=1694447842]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6.6, 3.5, -63)
+pixel_size = 0.006
+billboard = 1
+modulate = Color(1, 0.97, 0.88, 1)
+text = "5  OPEN TRAVERSAL"
+font_size = 72
+outline_size = 18
