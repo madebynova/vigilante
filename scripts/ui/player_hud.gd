@@ -6,9 +6,11 @@ extends Control
 ##
 ## Grapple reticle:
 ##   - a faint dot at the screen centre (where the camera aims),
-##   - a circle around the anchor a press would fire at (valid target),
+##   - a circle around the anchor a press would fire at (valid target); dim
+##     and filling up while the next arrow nocks after a grapple,
 ##   - a crossed circle around an aimed-at anchor that can't be used, with why
-##     (out of range, too close, no line of sight).
+##     (out of range, too close, no line of sight). Anchors hidden behind the
+##     world only show this when they're close (see Grapple).
 ## Slow-time meter: a thin bar under the prompt while slow time runs or
 ## recharges, gone once it's ready again.
 
@@ -74,10 +76,15 @@ func _draw() -> void:
 		var p := _project(cam, target.global_position)
 		if p.x != INF:
 			var r := RING_RADIUS * (1.0 + _pulse * 0.5)
-			_ring(p, r, COLOR_VALID, 3.0)
+			if g.arrow == null and not g.is_ready():
+				# Nocking the next arrow: a dim circle filling up, no key yet.
+				_ring(p, r, Color(COLOR_VALID, 0.3), 3.0)
+				draw_arc(p, r, -PI * 0.5, -PI * 0.5 + TAU * g.nock_fraction(), 40, COLOR_VALID, 3.0, true)
+			else:
+				_ring(p, r, COLOR_VALID, 3.0)
 			if g.arrow != null:
 				draw_circle(p, 6.0, COLOR_VALID) # fired: the arrow is on its way / holding
-			else:
+			elif g.is_ready():
 				_label(p + Vector2(r + 10.0, 7.0), UiStyle.key_text(&"grapple"), COLOR_VALID, HORIZONTAL_ALIGNMENT_LEFT)
 	elif g.aimed != null and is_instance_valid(g.aimed):
 		var p := _project(cam, g.aimed.global_position)

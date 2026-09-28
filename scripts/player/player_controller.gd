@@ -27,6 +27,9 @@ const GRAPPLE_BUFFER := 0.2
 ## How long an E press is remembered for windows (game seconds), so pressing
 ## a moment before a window comes into reach (mid-jump) still dives.
 const TRAVERSE_BUFFER := 0.15
+## A pull whose cable is blocked (or that drives the body head-on into a
+## wall) for this long lets go: the world wins over the grapple.
+const GRAPPLE_BLOCK_TIME := 0.1
 ## Quick moves whose jump / grapple presses are held until they end.
 const CHAINABLE_MOTIONS: Array[StringName] = [&"vault_over", &"vault_onto", &"mantle", &"climb_up"]
 ## Wall-runs never catch a fall faster than this (m/s)...
@@ -195,6 +198,10 @@ var _grapple_buffer := 0.0
 var _grapple_time := 0.0
 var _grapple_best := INF
 var _grapple_stall := 0.0
+## Speed of the current pull (see Grapple.pull_speed_for) and how long it has
+## been obstructed.
+var _pull_speed := 0.0
+var _grapple_blocked := 0.0
 ## Direction of travel along the wall being run on.
 var _wall_tangent := Vector3.ZERO
 var _wall_run_time := 0.0
@@ -284,6 +291,8 @@ func _physics_process(delta: float) -> void:
 				/ (settings.sprint_speed - settings.walk_speed), 0.0, 1.0)
 	# Slow time keeps the tightened FOV the window sequence used to apply.
 	camera.focus_amount = 1.0 if bullet_time.active else 0.0
+	visual.standing_still = state == State.MOVE and is_on_floor() and horizontal_speed() < 0.3 \
+			and wish_dir.length() < 0.1
 	visual.tick(delta, velocity, sprint_amount if state == State.MOVE else 0.0)
 
 	if global_position.y < fall_respawn_height:
@@ -298,6 +307,7 @@ func horizontal_speed() -> float:
 func teleport(xform: Transform3D) -> void:
 	bullet_time.reset()
 	grapple.detach()
+	grapple.nock()
 	current_motion = null
 	current_ledge = null
 	_approach_window = null
@@ -492,6 +502,7 @@ func _start_roll(stagger_after: bool) -> void:
 	_roll_time = 0.0
 	_roll_buffer = 0.0
 	_roll_stagger = stagger_after
+	grapple.nock()
 	_set_crouched(true)
 	visual.tucked = true
 	last_action = &"roll"
@@ -505,7 +516,7 @@ func _start_roll(stagger_after: bool) -> void:
 func _process_roll(delta: float) -> void:
 	_roll_time += delta
 	var p := clampf(_roll_time / roll_duration, 0.0, 1.0)
-	if _grapple_buffer > 0.0 and grapple.target != null:
+	if _can_grapple():
 		var anchor := grapple.target
 		_end_roll()
 		_fire_grapple(anchor)
@@ -615,6 +626,7 @@ func _try_ledge() -> bool:
 		current_ledge = ledge
 		velocity = Vector3.ZERO
 		last_action = &"ledge_grab"
+		grapple.nock()
 		_set_state(State.LEDGE_HANG)
 	else:
 		_start_motion(ParkourMoves.climb_up(ledge, global_position, true))
@@ -718,6 +730,7 @@ func _start_wall_run(normal: Vector3, tangent: Vector3) -> void:
 	_wall_tangent = tangent
 	_wall_run_time = 0.0
 	_jump_buffer = 0.0 # only a press on the wall jumps off it
+	grapple.nock()
 	current_ledge = null
 	last_action = &"wall_run"
 	_set_state(State.WALL_RUN)
@@ -731,7 +744,7 @@ func _start_wall_run(normal: Vector3, tangent: Vector3) -> void:
 ## ends when the wall does, after wall_run_max_time, when blocked, or on landing.
 func _process_wall_run(delta: float) -> void:
 	_wall_run_time += delta
-	if _grapple_buffer > 0.0 and grapple.target != null:
+	if _can_grapple():
 		var anchor := grapple.target
 		_end_wall_run(false)
 		_fire_grapple(anchor)
@@ -899,6 +912,7 @@ func _try_climb_down() -> bool:
 
 
 func _start_climb(normal: Vector3) -> void:
+	grapple.nock()
 	climb_normal = normal
 	velocity = Vector3.ZERO
 	_jump_buffer = 0.0
@@ -915,7 +929,7 @@ func _start_climb(normal: Vector3) -> void:
 ## At the bottom, S steps off onto the ground, or lets go of a surface that
 ## ends in mid-air. Space jumps away, C lets go, grapple fires as usual.
 func _process_climb(delta: float) -> void:
-	if _grapple_buffer > 0.0 and grapple.target != null:
+	if _can_grapple():
 		var anchor := grapple.target
 		_end_climb(&"grapple")
 		_fire_grapple(anchor)
@@ -985,6 +999,7 @@ func _end_climb(reason: StringName, new_velocity := Vector3.ZERO) -> void:
 # --- Scripted traversal ------------------------------------------------------
 
 func _start_motion(motion: TraversalMotion) -> void:
+	grapple.nock() # every parkour move readies the next arrow
 	current_motion = motion
 	current_ledge = null
 	velocity = Vector3.ZERO
@@ -1008,7 +1023,7 @@ func _process_traversal(delta: float) -> void:
 	visual.traversal_pitch = motion.body_pitch * sin(PI * p)
 	visual.tumble = -TAU * motion.tumble_turns * smoothstep(0.5, 1.0, p)
 	# Grapple out of a window dive (the bullet-time moment) once clear of it.
-	if motion.id == &"window_dive" and _grapple_buffer > 0.0 and grapple.target != null \
+	if motion.id == &"window_dive" and _can_grapple() \
 			and _clear_of_dive_window():
 		var anchor := grapple.target
 		_end_motion(false)
@@ -1210,10 +1225,15 @@ func _update_grapple_target() -> void:
 ## Grapple press with a valid target: fire the grapple arrow (on the ground or
 ## in the air).
 func _try_grapple() -> bool:
-	if _grapple_buffer <= 0.0 or grapple.target == null:
+	if not _can_grapple():
 		return false
 	_fire_grapple(grapple.target)
 	return true
+
+
+## Grapple pressed (or buffered), an anchor targeted and an arrow nocked.
+func _can_grapple() -> bool:
+	return _grapple_buffer > 0.0 and grapple.target != null and grapple.is_ready()
 
 
 ## Fires the grapple arrow at `anchor`. The pull starts once it has stuck
@@ -1268,14 +1288,18 @@ func _start_pull() -> void:
 	_grapple_time = 0.0
 	_grapple_best = global_position.distance_to(anchor.global_position)
 	_grapple_stall = 0.0
+	_grapple_blocked = 0.0
+	# Strongest when it extends a movement line: fired on the move (sprint,
+	# jump, dive, fall) it pulls at full speed, from a standstill it winches.
+	_pull_speed = grapple.pull_speed_for(velocity.length())
 	last_action = &"grapple"
 	_set_state(State.GRAPPLE)
 	grapple_started.emit(anchor)
 
 
 ## Pulled straight toward the stuck arrow's anchor. Ends on arrival, when
-## blocked, on timeout, if the anchor goes away, or when grapple is pressed
-## again (let go).
+## the world gets in the way (see _pull_obstructed), when stalled, on timeout,
+## if the anchor goes away, or when grapple is pressed again (let go).
 func _process_grapple(delta: float) -> void:
 	if not grapple.is_attached():
 		_end_grapple(false) # the anchor went away (disabled or removed)
@@ -1294,11 +1318,19 @@ func _process_grapple(delta: float) -> void:
 	if (close and to_target.y <= 0.25) or distance <= 0.3:
 		_end_grapple(true)
 		return
-	velocity = velocity.move_toward(to_target / distance * grapple.pull_speed, grapple.pull_acceleration * delta)
+	var dir := to_target / distance
+	velocity = velocity.move_toward(dir * _pull_speed, grapple.pull_acceleration * delta)
 	var flat := Vector3(to_target.x, 0.0, to_target.z)
 	if flat.length() > 0.3:
 		_face(flat, 14.0, delta)
 	move_and_slide()
+	if _pull_obstructed(anchor, dir, distance):
+		_grapple_blocked += delta
+		if _grapple_blocked >= GRAPPLE_BLOCK_TIME:
+			_end_grapple(false, &"grapple_blocked")
+			return
+	else:
+		_grapple_blocked = 0.0
 	if distance < _grapple_best - 0.05:
 		_grapple_best = distance
 		_grapple_stall = 0.0
@@ -1308,12 +1340,29 @@ func _process_grapple(delta: float) -> void:
 		_end_grapple(false) # blocked by geometry or taking too long
 
 
+## The world is in the way of the pull: something between the chest and the
+## anchor (the cable would pass through it), or the body driven head-on into
+## a wall or overhang short of the ledge. Collisions already stop the body;
+## this lets go instead of grinding it along the obstacle, so the usual moves
+## (ledge grab, wall-run, window, a fall and a roll) take over.
+func _pull_obstructed(anchor: GrappleAnchor, dir: Vector3, distance: float) -> bool:
+	if not grapple.has_line_of_sight(global_position + Vector3.UP * 1.2, anchor.global_position):
+		return true
+	if distance > 2.0: # the last metres may brush the ledge's own face
+		for i in get_slide_collision_count():
+			var n := get_slide_collision(i).get_normal()
+			if n.y <= 0.7 and n.dot(-dir) > 0.8:
+				return true
+	return false
+
+
 ## Ends the grapple (arrow in flight or pull) and removes the arrow and cable.
 ## `action` is the debug readout for an ending without arrival.
 func _end_grapple(arrived: bool, action := &"grapple_release") -> void:
 	var pull := velocity
 	var pulling := state == State.GRAPPLE
 	grapple.detach()
+	grapple.start_nock()
 	if arrived:
 		# Hop up and over the ledge the anchor sits on.
 		var flat := Vector3(pull.x, 0.0, pull.z)

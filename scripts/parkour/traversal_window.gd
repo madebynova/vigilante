@@ -30,6 +30,11 @@ enum Style { DIVE, VAULT, CLIMB }
 ## How far past the wall the player lands.
 @export var landing_distance := 1.9
 
+## Beyond the landing point a dive needs this much more floor (m) to roll out
+## with its speed; less than that and it tumbles to a stop at this speed (m/s).
+const ROOM_TO_RUN := 1.6
+const NARROW_LANDING_SPEED := 1.5
+
 
 func _ready() -> void:
 	body_entered.connect(_on_body_entered)
@@ -116,6 +121,10 @@ func build_motion(start: Vector3, speed: float, style: Style) -> TraversalMotion
 			m = TraversalMotion.new(&"window_dive", _clear_of_wall(_ahead_of(pts, start), start, entry_y), 1.0)
 			m.duration = clampf(m.length() / (speed * 1.05), 0.35, 0.6)
 			m.exit_velocity = through_direction(start) * speed * 1.12
+			if has_floor and not _room_to_run_on(x, s):
+				# A narrow landing (a balcony, a fire escape walkway): tumble to a
+				# stop on it instead of carrying the dive straight off its edge.
+				m.exit_velocity = through_direction(start) * NARROW_LANDING_SPEED
 			m.body_pitch = -1.4
 			m.tumble_turns = 1 if has_floor else 0
 			m.landing_shake = 0.15 if has_floor else 0.0
@@ -180,13 +189,29 @@ func _landing_point(x: float, side: float) -> Vector3:
 
 
 ## True if there is floor to land on within reach beyond the opening.
+## True if the floor the dive lands on carries on at about the same height
+## for a stride past the landing point (a room, a roof, a street), not a
+## narrow balcony or walkway that ends just beyond it.
+func _room_to_run_on(x: float, side: float) -> bool:
+	var land := _landing_hit(x, side)
+	if land.is_empty():
+		return false
+	var beyond := _floor_hit(x, side, landing_distance + ROOM_TO_RUN)
+	return not beyond.is_empty() and absf((beyond.position as Vector3).y - (land.position as Vector3).y) < 0.6
+
+
 func _has_landing(x: float, side: float) -> bool:
 	return not _landing_hit(x, side).is_empty()
 
 
 func _landing_hit(x: float, side: float) -> Dictionary:
-	var above := to_global(Vector3(x, 0.5, -side * landing_distance))
-	var below := to_global(Vector3(x, -3.0, -side * landing_distance))
+	return _floor_hit(x, side, landing_distance)
+
+
+## Floor within reach below the sill, `depth` beyond the wall on the far side.
+func _floor_hit(x: float, side: float, depth: float) -> Dictionary:
+	var above := to_global(Vector3(x, 0.5, -side * depth))
+	var below := to_global(Vector3(x, -3.0, -side * depth))
 	var query := PhysicsRayQueryParameters3D.create(above, below, 1)
 	return get_world_3d().direct_space_state.intersect_ray(query)
 

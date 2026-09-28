@@ -9,6 +9,12 @@ extends Node3D
 ## node answers "what would I grapple to?", owns the arrow in play and shows
 ## the cable. Everything the grapple arrow needs lives here and in
 ## GrappleArrow, so a future arrow selection only decides when fire() is used.
+##
+## Balance: the grapple extends movement rather than replacing it. The pull
+## is strongest when fired on the move (see pull_speed_for), and after a
+## grapple the next arrow takes a moment to nock unless a parkour move gets
+## there first (see nock()). The reach stays long so wall-jump -> grapple and
+## window -> grapple lines keep working.
 
 ## The arrow's nock starts this far in front of the hand, clear of the body.
 const NOCK_CLEARANCE := 0.4
@@ -33,7 +39,14 @@ enum Block { NONE, TOO_FAR, TOO_CLOSE, BLOCKED }
 @export var hand_height := 1.3
 
 @export_group("Pull")
+## Pull speed when fired carrying momentum (sprinting, jumping, diving,
+## falling)...
 @export var pull_speed := 22.0
+## ...and from a standstill: a steady winch rather than a launch...
+@export var pull_speed_standing := 13.0
+## ...scaling up from below 2 m/s to pull_speed at this much speed when the
+## pull starts (m/s): a sprint gets the full pull, a walk about 17 m/s.
+@export var momentum_speed := 9.0
 @export var pull_acceleration := 90.0
 ## Arrive once the feet are this close to the anchor.
 @export var arrive_distance := 0.9
@@ -41,6 +54,13 @@ enum Block { NONE, TOO_FAR, TOO_CLOSE, BLOCKED }
 ## Hop onto the ledge on arrival.
 @export var hop_up_speed := 4.5
 @export var hop_forward_speed := 5.5
+
+@export_group("Nock")
+## After a grapple ends (arrived, let go or missed) the next arrow is ready
+## after this long (game seconds). Any parkour move (vault, ledge, wall-run,
+## window, climb, roll) nocks it at once, so grapple -> parkour -> grapple
+## flows but grapple -> grapple waits a beat.
+@export var nock_time := 1.0
 
 @export_group("Release")
 ## Letting go mid-pull keeps the pull's direction but at most this much speed
@@ -52,10 +72,14 @@ enum Block { NONE, TOO_FAR, TOO_CLOSE, BLOCKED }
 
 @export_group("Aim readout")
 ## An anchor this close to the aim (degrees) that can't be grappled is shown
-## as blocked on the reticle...
+## crossed on the reticle...
 @export var readout_cone_degrees := 6.0
-## ...if it is within this range (m).
+## ...if the camera can see it (then out to this range, m)...
 @export var readout_range := 70.0
+## ...or, hidden behind something, only this close (m): nearby anchors
+## around a corner still explain themselves, far ones behind buildings stay
+## for the player to find.
+@export var hidden_readout_range := 14.0
 
 ## Anchor the player would grapple to right now (highlighted), or null.
 var target: GrappleAnchor
@@ -69,6 +93,7 @@ var anchor: GrappleAnchor
 var arrow: GrappleArrow
 
 var _cable: MeshInstance3D
+var _nock := 0.0
 
 
 func _ready() -> void:
@@ -99,6 +124,37 @@ func update_target(from: Vector3, camera: Camera3D) -> GrappleAnchor:
 	return best
 
 
+## The next arrow is nocked (a grapple can fire).
+func is_ready() -> bool:
+	return _nock <= 0.0
+
+
+## 0 just after a grapple .. 1 nocked.
+func nock_fraction() -> float:
+	return 1.0 - _nock / nock_time if nock_time > 0.0 else 1.0
+
+
+## Starts nocking the next arrow (a grapple just ended).
+func start_nock() -> void:
+	_nock = nock_time
+
+
+## Nocked at once (a parkour move, a respawn).
+func nock() -> void:
+	_nock = 0.0
+
+
+## Pull speed for a pull starting with the player moving at `speed` (m/s):
+## pull_speed_standing from a standstill up to pull_speed at momentum_speed.
+func pull_speed_for(speed: float) -> float:
+	var t := clampf((speed - 2.0) / maxf(momentum_speed - 2.0, 0.01), 0.0, 1.0)
+	return lerpf(pull_speed_standing, pull_speed, t)
+
+
+func _physics_process(delta: float) -> void:
+	_nock = maxf(_nock - delta, 0.0)
+
+
 ## Velocity to carry on with after letting go of a pull moving at `pull`
 ## (see release_speed). Never faster than `pull`.
 func release_velocity(pull: Vector3) -> Vector3:
@@ -107,7 +163,9 @@ func release_velocity(pull: Vector3) -> Vector3:
 
 
 ## Without a target, the anchor closest to the aim (within
-## readout_cone_degrees and readout_range) and what rules it out.
+## readout_cone_degrees and readout_range) and what rules it out. One hidden
+## from the camera by the world only shows when it's near (see
+## hidden_readout_range): the reticle never reveals anchors behind buildings.
 func _update_aim_readout(from: Vector3, aim_from: Vector3, forward: Vector3) -> void:
 	aimed = null
 	aimed_block = Block.NONE
@@ -133,6 +191,9 @@ func _update_aim_readout(from: Vector3, aim_from: Vector3, forward: Vector3) -> 
 		aimed_block = Block.TOO_CLOSE
 	else:
 		aimed_block = Block.BLOCKED
+	if distance > hidden_readout_range and not has_line_of_sight(aim_from, aimed.global_position):
+		aimed = null # out of sight and not close: nothing to show
+		aimed_block = Block.NONE
 
 
 ## Pure query (no highlight): the placed anchor closest to the aim direction

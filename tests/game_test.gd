@@ -1,9 +1,11 @@
 extends SceneTree
 ## Checks for the game layer on top of the movement: the landing roll and
-## hard landings, letting go of the grapple, input held through quick moves,
+## hard landings, letting go of the grapple, the grapple's balance (momentum
+## pull, nocking, the world stopping a pull), input held through quick moves,
 ## the grapple reticle readout and prompts (in a bare lab built in code), then
-## the first mission in the real city scene: briefing, route, pickup, finish,
-## best time, restart, pause and controls. Everything goes through the Input
+## the first mission in the real city scene: briefing, route (with and without
+## the grapple), the window -> 180 -> grapple move, pickup, finish, best time,
+## restart, pause and controls. Everything goes through the Input
 ## system like the other suites.
 ##
 ## Run headless:
@@ -48,6 +50,8 @@ func _run() -> void:
 	await test_landing()
 	await test_roll()
 	await test_release()
+	await test_grapple_balance()
+	await test_obstruction()
 	await test_held_input()
 	await test_window_buffer()
 	await test_e_never_vaults()
@@ -56,6 +60,8 @@ func _run() -> void:
 	await _load_city()
 	await test_mission_start()
 	await test_mission_route()
+	await test_parkour_route()
+	await test_window_turn_grapple()
 	await test_mission_restart()
 	await test_mission_assisted()
 	await test_pause_and_controls()
@@ -90,6 +96,11 @@ func _build_lab() -> void:
 	kit.anchor("FarAnchor", Vector3(0.0, 3.0, 50.0))
 	kit.building("Screen", 20.0, 30.0, 20.0, 21.0, 8.0, Kit.ROOF, 0.0, false)
 	kit.anchor("HiddenAnchor", Vector3(25.0, 3.0, 30.0))
+	kit.building("NearScreen", 32.0, 38.0, 20.0, 21.0, 8.0, Kit.ROOF, 0.0, false)
+	kit.anchor("NearHiddenAnchor", Vector3(35.0, 3.0, 23.0))
+	# A second anchor in reach of the pull block's roof (grapple -> grapple).
+	kit.building("NockTower", 222.0, 226.0, -20.0, -16.0, 12.5, Kit.GRAPPLE, 0.0, false)
+	kit.anchor("NockAnchor", Vector3(224.0, 13.0, -16.4))
 
 
 ## West edge of the drop tower `h` m tall.
@@ -221,6 +232,111 @@ func test_release() -> void:
 		await _place(Vector3(215.0, 0.05, 7.0), 0.0)
 
 
+## Pulls up the pull block's face from `start`: standing, or sprinting in
+## and jumping first. Returns the top pull speed and whether it arrived.
+func _pull(start: Vector3, run_in: bool) -> Dictionary:
+	var out := {top = 0.0, arrived = false}
+	var anchor := lab.get_node("PullAnchor") as GrappleAnchor
+	await _place(start, 0.0)
+	if run_in:
+		Input.action_press(&"move_forward")
+		Input.action_press(&"sprint")
+		await _phys(30)
+		await _tap(&"jump")
+		await _phys(4)
+	_aim_at(anchor.global_position)
+	await _phys(1)
+	var done := [false]
+	var on_finish := func(arrived: bool) -> void:
+		out.arrived = arrived
+		done[0] = true
+	player.grapple_finished.connect(on_finish)
+	await _tap(&"grapple")
+	_release_all()
+	while not done[0]:
+		if player.state == Player.State.GRAPPLE:
+			out.top = maxf(out.top, player.velocity.length())
+		await physics_frame
+	player.grapple_finished.disconnect(on_finish)
+	await _wait_until(func() -> bool: return player.is_on_floor(), 3.0)
+	return out
+
+
+func test_grapple_balance() -> void:
+	_section("Grapple: strongest on the move, a beat between grapples")
+	var g := player.grapple
+	var still := await _pull(Vector3(215.0, 0.05, 9.0), false)
+	var moving := await _pull(Vector3(215.0, 0.05, 20.0), true)
+	_check("from a standstill it winches (%.0f m/s), not a launch" % g.pull_speed_standing, still.arrived
+			and absf(still.top - g.pull_speed_standing) < 0.6, "top %.1f m/s" % still.top)
+	_check("fired on the move (sprint + jump) it pulls at full speed (%.0f m/s)" % g.pull_speed, moving.arrived
+			and moving.top > g.pull_speed - 1.0, "top %.1f m/s" % moving.top)
+	# Straight after arriving, the next arrow isn't nocked yet.
+	var fired := [0]
+	var on_fire := func(_a: GrappleAnchor) -> void: fired[0] += 1
+	player.grapple_fired.connect(on_fire)
+	var nock := lab.get_node("NockAnchor") as GrappleAnchor
+	_aim_at(nock.global_position)
+	await _phys(2)
+	var aimed := g.target == nock
+	await _tap(&"grapple")
+	await _phys(3)
+	_check("arrive -> fire again at once: the reticle shows the next arrow nocking, no shot", aimed and fired[0] == 0
+			and not g.is_ready(), "fired %d, nocked %.2f" % [fired[0], g.nock_fraction()])
+	await _wait_until(func() -> bool: return g.is_ready(), g.nock_time + 0.2)
+	_aim_at(nock.global_position)
+	await _phys(1)
+	await _tap(&"grapple")
+	await _phys(3)
+	_check("%.1f s later: fires" % g.nock_time, fired[0] == 1)
+	player.grapple_fired.disconnect(on_fire)
+	await _wait_until(func() -> bool: return player.state == Player.State.MOVE and player.is_on_floor(), 5.0)
+	# Any parkour move nocks it at once.
+	await _place(Vector3(242.0, 0.05, -2.0), 0.0)
+	g.start_nock()
+	var nocking := not g.is_ready()
+	Input.action_press(&"move_forward")
+	Input.action_press(&"sprint")
+	await _wait_until(func() -> bool: return player.state == Player.State.TRAVERSAL, 2.0)
+	var vaulting := player.state == Player.State.TRAVERSAL
+	var ready := g.is_ready()
+	_release_all()
+	_check("grapple -> parkour (a vault) -> the next arrow is nocked at once", nocking and vaulting and ready)
+	await _wait_until(func() -> bool: return player.state == Player.State.MOVE, 2.0)
+
+
+func test_obstruction() -> void:
+	_section("Grapple: the world wins over the pull")
+	var anchor := lab.get_node("PullAnchor") as GrappleAnchor
+	await _place(Vector3(215.0, 0.05, 22.0), 0.0)
+	_aim_at(anchor.global_position)
+	await _phys(1)
+	var ended := [false, true]
+	var on_finish := func(arrived: bool) -> void:
+		ended[0] = true
+		ended[1] = arrived
+	player.grapple_finished.connect(on_finish)
+	await _tap(&"grapple")
+	await _wait_until(func() -> bool: return player.state == Player.State.GRAPPLE and player.global_position.z < 14.0, 3.0)
+	# A wall drops in between: the cable would pass through it.
+	var wall := kit.box("Obstacle", 205.0, 225.0, 0.0, 14.0, 9.0, 9.5, Kit.ROOF)
+	var nearest := INF
+	var frames := 0
+	while frames < 60:
+		nearest = minf(nearest, player.global_position.z)
+		frames += 1
+		await physics_frame
+	player.grapple_finished.disconnect(on_finish)
+	var action := player.last_action
+	_check("a wall between the player and the anchor mid-pull: the pull lets go", ended[0] and not ended[1]
+			and (action == &"grapple_blocked" or player.state == Player.State.MOVE), "%s %s" % [ended, action])
+	_check("never through the wall (stays on its side)", nearest > 9.5 + 0.3, "closest z %.2f" % nearest)
+	_check("normal movement takes over (falling, steerable)", player.state == Player.State.MOVE)
+	await _wait_until(func() -> bool: return player.is_on_floor(), 3.0)
+	wall.queue_free()
+	await _phys(2)
+
+
 func test_held_input() -> void:
 	_section("Input held through quick moves")
 	var ids := _record_traversals()
@@ -311,8 +427,22 @@ func test_reticle() -> void:
 	await _place(Vector3(25.0, 0.05, 5.0), 180.0)
 	_aim_at((lab.get_node("HiddenAnchor") as Node3D).global_position)
 	await _phys(3)
-	_check("aiming at an anchor behind a wall: crossed, NO LINE OF SIGHT", g.target == null
-			and g.aimed_block == Grapple.Block.BLOCKED, "%s %d" % [g.aimed, g.aimed_block])
+	_check("an anchor 25 m away hidden behind a building: nothing shown (the world keeps it hidden)", g.target == null
+			and g.aimed == null, "%s %d" % [g.aimed, g.aimed_block])
+	await _place(Vector3(35.0, 0.05, 12.0), 180.0)
+	_aim_at((lab.get_node("NearHiddenAnchor") as Node3D).global_position)
+	await _phys(3)
+	_check("a nearby anchor just behind a wall: crossed, NO LINE OF SIGHT (explains why)", g.target == null
+			and g.aimed != null and g.aimed_block == Grapple.Block.BLOCKED, "%s %d" % [g.aimed, g.aimed_block])
+	await _place(Vector3(35.0, 0.05, 17.0), 180.0)
+	_aim_at((lab.get_node("NearHiddenAnchor") as Node3D).global_position)
+	await _phys(3)
+	var blocked_near := g.aimed != null
+	await _place(Vector3(40.0, 0.05, 23.0), 90.0)
+	_aim_at((lab.get_node("NearHiddenAnchor") as Node3D).global_position)
+	await _phys(3)
+	_check("round the corner with a clear line: usable again", blocked_near and g.target != null
+			and g.target.name == "NearHiddenAnchor", "%s" % g.target)
 	await _place(Vector3(242.0, 0.05, -12.0), 0.0)
 	_aim_at((lab.get_node("VaultAnchor") as Node3D).global_position)
 	await _phys(3)
@@ -420,6 +550,81 @@ func test_mission_route() -> void:
 	var hud := main.get_node("MissionHUD") as MissionHUD
 	await _frames(3)
 	_check("HUD: run complete, R to run it again", _hud_text(hud).contains("Run complete"), _hud_text(hud))
+
+
+## No grapple at all: walk-up roof -> jump the yard -> E in through the Hotel
+## corridor (slow time) -> run through -> E out onto the North Ave fire
+## escape (a narrow landing: the dive stops on it) -> up two flights -> the drop.
+func test_parkour_route() -> void:
+	_section("Mission: the drop by parkour alone")
+	mission.restart()
+	await _phys(5)
+	var fired := [0]
+	var on_fire := func(_a: GrappleAnchor) -> void: fired[0] += 1
+	player.grapple_fired.connect(on_fire)
+	var ids := _record_traversals()
+	var reached := [false]
+	var on_reached := func(step: MissionStep, _i: int) -> void: reached[0] = reached[0] or step.name == "Drop"
+	mission.step_reached.connect(on_reached)
+	await _place(Vector3(-24.5, 10.55, 16.0), 0.0)
+	Input.action_press(&"move_forward")
+	Input.action_press(&"sprint")
+	player.camera.yaw = 0.0
+	await _wait_until(func() -> bool: return player.global_position.z < 6.5, 3.0)
+	Input.action_press(&"jump")
+	await _wait_until(func() -> bool: return player.prompt.hint_text() != "", 1.0)
+	await _tap(&"traverse")
+	await _wait_until(func() -> bool: return ids.count(&"window_dive") >= 1 and player.state == Player.State.MOVE, 2.0)
+	Input.action_release(&"jump")
+	await _wait_until(func() -> bool: return player.global_position.z < -19.5, 3.0)
+	await _tap(&"traverse")
+	await _wait_until(func() -> bool: return ids.count(&"window_dive") >= 2 and player.state == Player.State.MOVE, 3.0)
+	_release_all()
+	await _phys(20)
+	var on_escape := player.is_on_floor() and absf(player.global_position.y - 10.5) < 0.1
+	_check("jump the yard, E through the corridor, E out: lands and stays on the fire escape", ids.count(&"window_dive") == 2
+			and on_escape, "%s %s" % [ids, player.global_position])
+	var ok := await _walk_to([Vector3(-24.8, 0, -23.1), Vector3(-32.3, 0, -23.1), Vector3(-32.3, 0, -24.25), Vector3(-25.0, 0, -24.25),
+			Vector3(-25.0, 0, -23.1), Vector3(-32.3, 0, -23.1), Vector3(-32.3, 0, -24.25), Vector3(-25.0, 0, -24.25),
+			Vector3(-25.0, 0, -23.1), Vector3(-24.8, 0, -19.2)], false, 20.0)
+	await _phys(5)
+	_stop_recording()
+	player.grapple_fired.disconnect(on_fire)
+	mission.step_reached.disconnect(on_reached)
+	_check("up two flights onto the roof: the drop, no grapple used", ok and reached[0] and fired[0] == 0,
+			"%s reached %s grapples %d" % [player.global_position, reached[0], fired[0]])
+
+
+## Player-found tech kept by the balance: E out of the safehouse loft's front
+## window, turn round in the air, look up, grapple straight back up onto the
+## roof above the window.
+func test_window_turn_grapple() -> void:
+	_section("Window -> turn 180 in the air -> look up -> grapple")
+	var anchor := _anchor("SafehouseDistrict/Safehouse/AnchorSafehouseRoof")
+	var slow := [false]
+	var on_slow := func() -> void: slow[0] = true
+	player.bullet_time.started.connect(on_slow)
+	await _place(Vector3(-27.1, 3.85, 38.3), 0.0)
+	Input.action_press(&"move_forward")
+	await _phys(2)
+	await _tap(&"traverse")
+	await _wait_until(func() -> bool: return player.state == Player.State.TRAVERSAL, 1.0)
+	_release_all()
+	await _wait_until(func() -> bool: return player.state != Player.State.TRAVERSAL, 2.0)
+	var cam := player.camera
+	var yaw0 := cam.yaw
+	var pitch0 := cam.pitch
+	var d := anchor.global_position - cam.global_position
+	for i in 20:
+		var t := float(i + 1) / 20.0
+		cam.yaw = lerp_angle(yaw0, atan2(-d.x, -d.z), t)
+		cam.pitch = lerpf(pitch0, atan2(d.y, Vector2(d.x, d.z).length()), t)
+		await physics_frame
+	var airborne := not player.is_on_floor()
+	var r := await _grapple_to(anchor)
+	player.bullet_time.started.disconnect(on_slow)
+	_check("out of the window (slow time), turned round mid-fall, grapple: back up on the roof (7.7)", slow[0] and airborne
+			and r.arrived and absf(player.global_position.y - 7.7) < 0.1, "%s %s" % [r, player.global_position])
 
 
 func test_mission_restart() -> void:
@@ -541,6 +746,7 @@ func _walk_to(points: Array, sprint := false, timeout := 10.0) -> bool:
 
 func _grapple_to(anchor: GrappleAnchor) -> Dictionary:
 	var out := {seen = false, arrived = false}
+	await _wait_until(func() -> bool: return player.grapple.is_ready(), 1.5)
 	_aim_at(anchor.global_position)
 	await _phys(2)
 	out.seen = player.grapple.target == anchor

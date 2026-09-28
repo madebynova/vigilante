@@ -535,9 +535,12 @@ func test_construction_site() -> void:
 	var d := await _dive_out_and_grapple(Vector3(-43.0, 14.05, -48.0), 180.0, _anchor("ServiceDistrict/NorthRow/AnchorTenementNorth"))
 	_check("site office: E out of the south window (slow time), airborne -> grapple the tenement (17.5)", d.dove and d.airborne
 			and d.slow and d.arrived and absf(d.pos.y - 17.5) < 0.1, "%s" % d)
-	d = await _dive_out_and_grapple(Vector3(-42.0, 14.05, -48.0), -90.0, _anchor("Skyline/Meridian/AnchorTerrace"))
-	_check("site office: E out of the east window, airborne -> grapple the Meridian terrace (10.5)", d.dove and d.airborne
-			and d.arrived and absf(d.pos.y - 10.5) < 0.1, "%s" % d)
+	# East window: the dive drops below the terrace's roof line on the way, so
+	# the pull meets the terrace's west wall. The world wins: the grapple lets
+	# go there and, holding toward it, the ledge is caught and climbed.
+	d = await _dive_out_and_grapple(Vector3(-42.0, 14.05, -48.0), -90.0, _anchor("Skyline/Meridian/AnchorTerrace"), true, true)
+	_check("site office: E out of the east window, airborne -> grapple the Meridian terrace -> its wall -> ledge -> up (10.5)",
+			d.dove and d.airborne and absf(d.pos.y - 10.5) < 0.1, "%s" % d)
 	# Crane: the mast ladder through the deck hatch, jump down to the top slab, grapple the Meridian.
 	c = await _climb_up(Vector3(-34.0, 0.05, -57.4), 0.0, 20.0)
 	_check("crane: E at the mast ladder, climb 30 m through the hatch onto the deck", c.climbed and absf(c.pos.y - 30.0) < 0.1, "%s" % c)
@@ -1112,7 +1115,8 @@ func _run_and_land(start: Vector3, yaw: float, jump_when: Callable) -> bool:
 
 ## From `pos` inside a room facing `yaw`: E through the window ahead, then
 ## grapple `anchor` from the fall.
-func _dive_out_and_grapple(pos: Vector3, yaw: float, anchor: GrappleAnchor, expect_slow := true) -> Dictionary:
+func _dive_out_and_grapple(pos: Vector3, yaw: float, anchor: GrappleAnchor, expect_slow := true,
+		hold_toward := false) -> Dictionary:
 	var out := {dove = false, airborne = false, slow = false, arrived = false, pos = Vector3.ZERO}
 	await _place(pos, yaw)
 	var slow := [false]
@@ -1126,7 +1130,7 @@ func _dive_out_and_grapple(pos: Vector3, yaw: float, anchor: GrappleAnchor, expe
 	await _wait_until(func() -> bool: return player.state != Player.State.TRAVERSAL, 2.0)
 	await _phys(2)
 	out.airborne = not player.is_on_floor() and player.state == Player.State.MOVE
-	var r := await _grapple_to(anchor)
+	var r := await _grapple_to(anchor, hold_toward)
 	player.bullet_time.started.disconnect(on_slow)
 	out.slow = slow[0] or not expect_slow
 	out.arrived = r.arrived
@@ -1134,8 +1138,12 @@ func _dive_out_and_grapple(pos: Vector3, yaw: float, anchor: GrappleAnchor, expe
 	return out
 
 
-func _grapple_to(anchor: GrappleAnchor) -> Dictionary:
+## Fires at `anchor` (once the arrow is nocked) and waits for the landing.
+## `hold_toward` keeps W held after firing and climbs up from a caught ledge
+## (a pull the world stopped short of it).
+func _grapple_to(anchor: GrappleAnchor, hold_toward := false) -> Dictionary:
 	var out := {seen = false, arrived = false, landed = Vector3.ZERO, on_floor = false, clear = false}
+	await _wait_until(func() -> bool: return player.grapple.is_ready(), 1.5)
 	_aim_at(anchor.global_position)
 	await _phys(2)
 	out.seen = player.grapple.target == anchor
@@ -1145,8 +1153,14 @@ func _grapple_to(anchor: GrappleAnchor) -> Dictionary:
 		done[0] = true
 	player.grapple_finished.connect(on_finish)
 	await _tap(&"grapple")
+	if hold_toward:
+		Input.action_press(&"move_forward")
 	await _wait_until(func() -> bool: return done[0], 5.0)
 	player.grapple_finished.disconnect(on_finish)
+	if hold_toward and not out.arrived:
+		if await _wait_until(func() -> bool: return player.state == Player.State.LEDGE_HANG, 1.5):
+			await _tap(&"jump")
+		_release_all()
 	await _wait_until(func() -> bool: return player.is_on_floor(), 4.0)
 	await _phys(5)
 	out.landed = player.global_position

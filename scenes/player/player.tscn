@@ -10,6 +10,7 @@
 [ext_resource type="PackedScene" uid="uid://c6dk28rctkpls" path="res://assets/characters/vigilante/vigilante_player.glb" id="9_model"]
 [ext_resource type="Script" uid="uid://b43ua1ohnxqcy" path="res://scripts/player/grapple.gd" id="10_grapple"]
 [ext_resource type="Script" uid="uid://bmdjfle6hbo2i" path="res://scripts/ui/player_hud.gd" id="11_hud"]
+[ext_resource type="AnimationLibrary" uid="uid://u8ypp8uu73ul" path="res://assets/characters/vigilante/animations/vigilante_animations.tres" id="12_anims"]
 
 [sub_resource type="Resource" id="Resource_settings"]
 script = ExtResource("2_settings")
@@ -37,6 +38,11 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
 
 [node name="VigilanteModel" parent="Visual/Pivot" unique_id=271290518 instance=ExtResource("9_model")]
 transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, -0.9, 0)
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="Visual" unique_id=1630482917]
+root_node = NodePath("../Pivot/VigilanteModel")
+libraries/ = ExtResource("12_anims")
+autoplay = &"idle"
 
 [node name="ParkourSensor" type="Node3D" parent="." unique_id=1095305801]
 script = ExtResource("4_sensor")

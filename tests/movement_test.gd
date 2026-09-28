@@ -1872,7 +1872,7 @@ func _temp_wall(center: Vector3, facing: Vector3) -> StaticBody3D:
 
 
 func test_character() -> void:
-	_section("Vigilante character model (static)")
+	_section("Vigilante character model")
 	var model := player.get_node_or_null("Visual/Pivot/VigilanteModel") as Node3D
 	_check("Vigilante model is in the player scene", model != null)
 	if model == null:
@@ -2093,8 +2093,17 @@ func test_idle_animation() -> void:
 			and p_live != null and p_live.is_playing() and p_live.current_animation == &"idle")
 	preview.queue_free()
 	await _frames(2)
-	_check("player model is not animated (idle not connected to gameplay)",
-			player.find_children("*", "AnimationPlayer", true, false).is_empty())
+	# Connected to the player: the idle loop while standing still.
+	var player_ap := player.get_node_or_null("Visual/AnimationPlayer") as AnimationPlayer
+	await _place(Vector3(20, 0, 20), 0.0)
+	await _phys(30)
+	_check("player model: one AnimationPlayer, playing the idle loop while standing still", player_ap != null
+			and player.find_children("*", "AnimationPlayer", true, false).size() == 1 and player_ap.is_playing()
+			and player_ap.current_animation == &"idle", str(player_ap.current_animation if player_ap else &"none"))
+	var player_model := player.get_node("Visual/Pivot/VigilanteModel") as Node3D
+	var idle_box := _model_aabb(player_model)
+	_check("idle keeps the feet on the ground and the body upright", absf(idle_box.position.y - player.global_position.y) < 0.03
+			and absf(idle_box.size.y - 1.848) < 0.06, "bottom %.3f height %.2f" % [idle_box.position.y - player.global_position.y, idle_box.size.y])
 
 
 func test_neutral_stance() -> void:
@@ -2206,7 +2215,25 @@ func test_neutral_stance() -> void:
 			and players.all(func(p: AnimationPlayer) -> bool: return p.is_playing() and p.current_animation == &"neutral"))
 	preview.queue_free()
 	await _frames(2)
-	_check("still not connected to the player", player.find_children("*", "AnimationPlayer", true, false).is_empty())
+	# On the player: neutral while moving (until locomotion clips exist), idle
+	# again once still. Bones only: the collider never changes.
+	var player_ap := player.get_node("Visual/AnimationPlayer") as AnimationPlayer
+	var shape: CapsuleShape3D = (player.get_node("CollisionShape3D") as CollisionShape3D).shape
+	await _place(Vector3(20, 0, 20), 0.0)
+	Input.action_press(&"move_forward")
+	await _phys(20)
+	var moving := player_ap.current_animation
+	_release_all()
+	_key_event(&"jump", true)
+	await _phys(8)
+	_key_event(&"jump", false)
+	var jumping := player_ap.current_animation
+	await _wait_until(func() -> bool: return player.is_on_floor(), 2.0)
+	await _phys(30)
+	_check("player: neutral stance while moving and in the air, idle again once still", moving == &"neutral"
+			and jumping == &"neutral" and player_ap.current_animation == &"idle", "%s / %s / %s" % [moving, jumping, player_ap.current_animation])
+	_check("posing never touches the gameplay capsule", is_equal_approx(shape.height, settings.standing_height)
+			and is_equal_approx(shape.radius, 0.35))
 
 
 ## Upper arm angle from straight down, in degrees (rest or current pose).

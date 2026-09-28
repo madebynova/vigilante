@@ -22,7 +22,7 @@ The project is at an early stage. The current build is the **first playable piec
 - Window traversal (a deliberate dive through an opening, in either direction, on foot or mid-jump)
 - Grapple arrow: fire an arrow at an anchor point, then get pulled along its cable, on foot or in the air
 - Timed bullet-time ability
-- The Vigilante character model in the player scene (static for now)
+- The Vigilante character model in the player scene: an idle loop while standing still, a neutral stance while moving (procedural lean, squash and tumble on top)
 - Greybox movement test level with a traversal playground
 - First playable city greybox: five districts on three traversal layers (street, mid-level, skyline), audited as one traversal network
 - Day / night prototype: **N** toggles between a clear day and a readable night (moonlight, street lamps, lit windows, feature lights)
@@ -37,7 +37,7 @@ The project is at an early stage. The current build is the **first playable piec
 - Combat, weapons and enemies
 - Grapple swinging, rope physics and grapple combat (the grapple arrow is a straight pull to anchor points only)
 - Other arrow types and the arrow selection menu (the grapple arrow is the only arrow so far)
-- Character rigging and animations (the model is currently a static, unrigged mesh; a wall-run only leans the body off the wall)
+- Locomotion animations: walk, run, jump, climb and so on (the model only has the idle loop and the neutral stance; moves read through procedural lean, tuck and tumble, and a wall-run only leans the body off the wall)
 - Story, more missions, progression, audio
 
 ## Core Gameplay
@@ -106,6 +106,7 @@ A timed slow-motion ability.
 - It also works **mid-jump**: jump toward the window and press E in the air to dive straight through. An E pressed a moment early (up to 0.15 s before the window is in reach) still counts.
 - From right under the sill the move first rises in front of the wall and then goes through the opening, so the body never passes through the wall below the window.
 - Diving out of a **high window** with nothing to land on hands the momentum over to a normal fall, ready for a grapple.
+- Diving out onto a **narrow landing** (a balcony, a fire escape walkway: less than about 1.6 m of floor beyond the landing point) tumbles to a stop on it instead of carrying the dive's speed straight off its edge, so window -> fire escape -> stairs works as a route.
 - Running, sprinting or jumping into a window does nothing on its own; it is always a deliberate button press. A window's sill is never used as a vault or a ledge to climb through.
 - **Plain windows** (test level only): E climbs through, or vaults through when moving fast. Like dive windows they are never taken without E.
 
@@ -114,7 +115,9 @@ A timed slow-motion ability.
 The Vigilante's grapple is a fired arrow, used for building-to-building traversal.
 
 - **Anchor points** are placed in the level as small glowing markers. The one you are aiming at (camera centre, within 35 m, with line of sight) brightens.
-- **Reticle:** a faint dot marks the camera centre. The anchor a press would fire at gets an amber **circle** (with the key, RMB); an anchor right under the aim that can't be used gets a red **crossed circle** saying why: **OUT OF RANGE**, **TOO CLOSE** or **NO LINE OF SIGHT**.
+- **Reticle:** a faint dot marks the camera centre. The anchor a press would fire at gets an amber **circle** (with the key, RMB; dim and filling up while the next arrow nocks). An anchor right under the aim that can't be used gets a red **crossed circle** saying why - **OUT OF RANGE**, **TOO CLOSE** or **NO LINE OF SIGHT** - but only if the camera can see it, or it's close (within 14 m) and just round a corner: the reticle never reveals anchors hidden behind buildings. Round the corner, with a clear line, it's a normal target again.
+- **Balance - an extension, not the way to travel:** the grapple is strongest when it extends a movement line. Fired on the move (sprinting, jumping, diving out of a window, falling, off a wall-run) it pulls at **22 m/s**; from a standstill it winches at **13 m/s** (a walk gets about 17). After a grapple ends, the next arrow takes **1 s** to nock - unless a parkour move (vault, mantle, ledge grab, wall-run, window, climb, roll) comes first, which nocks it at once. So grapple -> parkour -> grapple flows, grapple -> grapple waits a beat. Range stays 35 m so wall-jump -> grapple and window -> grapple lines keep working (a measured 30 m cut mostly hit those).
+- **The world wins:** if something gets between the player and the anchor during the pull (the cable would pass through it), or the body is driven head-on into a wall or overhang short of the ledge, the pull lets go (after 0.1 s) with the usual release rules. Nothing drags or launches the player through geometry; hold toward the wall and a ledge in reach is caught, or a wall-run, a window or a fall and roll takes over.
 - Press **Right mouse** to fire a **grapple arrow** at it. The arrow flies to the anchor (80 m/s, slowed by bullet time like everything else) trailing its cable, and sticks in it. While it flies the player keeps their momentum; only once it has attached is the player pulled along the cable, hopping onto the ledge the anchor sits on. Works on foot or in the air, including straight out of a window dive.
 - Press again to let go, either while the arrow is still flying or during the pull. Letting go keeps the way you were going but only what a body carries on with: at most 12.5 m/s across and a jump's rise (8 m/s) upward, never more than the pull itself. Let go under a ledge and you can catch it (holding toward it grabs the ledge or mantles); let go by a wall and you drop along it instead of being launched past the edge. Falling speed is always kept.
 - If the arrow can't hold (something blocks its path, its anchor goes away, or it flies too long) the grapple ends without a pull.
@@ -231,7 +234,7 @@ tests/
   movement_test.gd        Automated movement test suite (test level)
   traversal_test.gd       Wall-jump reach, climbing and window regressions in a bare lab built in code
   city_test.gd            City greybox routes and map-wide checks
-  game_test.gd            Landing roll, grapple release, held input, reticle, prompts; the mission, pause and controls
+  game_test.gd            Landing roll, grapple release / balance / obstruction, held input, reticle, prompts; the mission (with and without grapple), pause and controls
 tools/
   city/                   City layout (one script per district), the builder that bakes it, the traversal audit
 ```
@@ -254,7 +257,7 @@ Add `-- --shots=<folder>` (without `--headless`) to also save screenshots.
 godot --headless --path . -s res://tests/traversal_test.gd
 ```
 
-**Game checks:** the landing roll and hard landings, letting go of the grapple by a wall, input held through quick moves, the early-E window dive, E never vaulting, the reticle readout and prompts (in a lab built in code), then the mission in the real city: briefing, a full run (street -> grapple -> grapple -> package -> grapple home), best time, restart, debug-assisted runs, pause, F1 and F3, and the roll tip. It saves to its own `user://game_test.cfg`, never to the real save.
+**Game checks:** the landing roll and hard landings, letting go of the grapple by a wall, the grapple's momentum pull and nocking, a wall appearing mid-pull, reticle visibility behind walls, input held through quick moves, the early-E window dive, E never vaulting, the reticle readout and prompts (in a lab built in code), then the mission in the real city: briefing, a full run (street -> grapple -> grapple -> package -> grapple home), the drop by parkour alone (corridor windows and the fire escape, no grapple), window -> turn 180 -> grapple, best time, restart, debug-assisted runs, pause, F1 and F3, and the roll tip. It saves to its own `user://game_test.cfg`, never to the real save.
 
 ```
 godot --headless --path . -s res://tests/game_test.gd
@@ -284,7 +287,7 @@ godot --headless --path . -s res://tools/city/build_city.gd
 
 Planned, not yet implemented:
 
-- Rigging and animating the Vigilante character (idle, walk, sprint, jump, fall, land, crouch)
+- Animating the Vigilante character beyond the idle (walk, sprint, jump, fall, land, crouch, climb)
 - An arrow selection menu and more arrow types alongside the grapple arrow
 - Building on the grapple: swinging and grapple combat
 - Combat

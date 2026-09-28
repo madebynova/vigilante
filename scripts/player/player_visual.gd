@@ -1,11 +1,12 @@
 class_name PlayerVisual
 extends Node3D
-## Holds the (static, un-rigged) Vigilante model and applies light procedural
-## motion to it: lean into acceleration, squash on landing, tuck and tumble
-## during traversal, compress when crouching. Replace with skeletal
-## animation once the model is rigged; the controller only uses the small
-## API below. Ticked from the player's physics step so physics interpolation
-## keeps it smooth.
+## Holds the Vigilante model and applies light procedural motion to it: lean
+## into acceleration, squash on landing, tuck and tumble during traversal,
+## compress when crouching. The skeleton itself only has a pose: the idle
+## loop while the player stands still, the neutral stance otherwise (until
+## locomotion animations exist). Both only move bones, never the body or its
+## collision. The controller only uses the small API below. Ticked from the
+## player's physics step so physics interpolation keeps it smooth.
 
 const STAND_PIVOT_Y := 0.9
 
@@ -21,6 +22,15 @@ var tumble := 0.0
 ## Roll in radians set by the controller while wall-running (leans the body
 ## off the wall, feet on it). Smoothed here.
 var wall_roll := 0.0
+## Set by the controller: on the ground, not moving, no input. Plays the
+## idle loop; anything else holds the neutral stance.
+var standing_still := false
+
+## Skeleton pose clips in the AnimationPlayer child's library.
+@export var idle_animation: StringName = &"idle"
+@export var moving_animation: StringName = &"neutral"
+## Crossfade between the two (seconds).
+@export var pose_blend := 0.25
 
 var _lean := Vector2.ZERO
 var _wall_roll := 0.0
@@ -35,6 +45,7 @@ var _last_velocity := Vector3.ZERO
 @export_flags_3d_render var model_layers := 2
 
 @onready var _pivot: Node3D = $Pivot
+@onready var _poses: AnimationPlayer = get_node_or_null(^"AnimationPlayer")
 
 
 func _ready() -> void:
@@ -79,4 +90,19 @@ func tick(delta: float, velocity: Vector3, sprint_amount: float) -> void:
 	_height_scale = lerpf(_height_scale, height_scale, blend)
 	_pivot.scale = Vector3(1.0 + _squash * 0.6, _height_scale * (1.0 - _squash), 1.0 + _squash * 0.6)
 	_wall_roll = lerpf(_wall_roll, wall_roll, 1.0 - exp(-12.0 * delta))
+	_update_pose()
 	_pivot.rotation = Vector3(_lean.x + traversal_pitch + tumble, 0.0, _lean.y + wobble_roll + _wall_roll)
+
+
+## The idle loop while standing still, the neutral stance otherwise.
+func _update_pose() -> void:
+	if _poses == null:
+		return
+	var want := idle_animation if standing_still else moving_animation
+	if _poses.current_animation != want and _poses.has_animation(want):
+		_poses.play(want, pose_blend)
+
+
+## The pose clip playing now ("" without an AnimationPlayer).
+func current_pose() -> StringName:
+	return _poses.current_animation if _poses != null else &""
